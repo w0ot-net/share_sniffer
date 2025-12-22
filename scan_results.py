@@ -16,7 +16,6 @@ INTERESTING_EXTS = {
     ".py",
     ".conf",
     ".config",
-    ".ini",
     ".yml",
     ".yaml",
     ".json",
@@ -62,6 +61,15 @@ INTERESTING_XML_FILENAMES = {
     "machine.config",
     "applicationhost.config",
     "webservices.config",
+}
+INTERESTING_INI_FILENAMES = {
+    "config.ini",
+    "settings.ini",
+    "secrets.ini",
+    "credentials.ini",
+    "creds.ini",
+    "passwords.ini",
+    "db.ini",
 }
 INTERESTING_FILENAMES = {
     ".env",
@@ -148,6 +156,9 @@ def find_filename_matches(filename):
     _, ext = os.path.splitext(lowered)
     if ext in INTERESTING_EXTS:
         matches.append(ext)
+    if ext == ".ini":
+        if base in INTERESTING_INI_FILENAMES:
+            matches.append(base)
     return matches
 
 
@@ -172,6 +183,16 @@ def is_interesting(path):
     if base in INTERESTING_XML_FILENAMES:
         return True
     _, ext = os.path.splitext(lowered)
+    if ext == ".ini":
+        if base in INTERESTING_INI_FILENAMES:
+            return True
+        for keyword in INTERESTING_NAME_KEYWORDS:
+            if keyword in base:
+                return True
+        for pattern in INTERESTING_KEYWORD_PATTERNS.values():
+            if pattern.search(base):
+                return True
+        return False
     if ext in INTERESTING_EXTS:
         return True
     for keyword in INTERESTING_NAME_KEYWORDS:
