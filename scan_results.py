@@ -35,7 +35,6 @@ INTERESTING_EXTS = {
     ".old",
     ".swp",
     ".sql",
-    ".db",
     ".sqlite",
     ".pfx",
     ".p12",
@@ -45,6 +44,7 @@ INTERESTING_EXTS = {
     ".cer",
     ".kdbx",
     ".rdp",
+    ".rdg",
 }
 INTERESTING_NAME_KEYWORDS = {
     "admin",
@@ -100,6 +100,12 @@ INTERESTING_FILENAMES = {
     "id_ed25519.ppk",
     "known_hosts",
     "rdp.rdp",
+    "users.db",
+    "credentials.db",
+    "creds.db",
+    "secrets.db",
+    "secret.db",
+    "passwords.db",
     "credentials.json",
     "creds.json",
     "secrets.json",
@@ -276,6 +282,20 @@ def is_interesting(path, case_insensitive, ignore_set, keyword_patterns):
     _, ext = os.path.splitext(compare_path)
     if ext == ".ini":
         if base in INTERESTING_INI_FILENAMES and base not in ignore_set:
+            return True
+        for keyword in INTERESTING_NAME_KEYWORDS:
+            if keyword in ignore_set:
+                continue
+            if keyword in base:
+                return True
+        for keyword, pattern in keyword_patterns.items():
+            if keyword in ignore_set:
+                continue
+            if pattern.search(base):
+                return True
+        return False
+    if ext == ".db":
+        if base in INTERESTING_FILENAMES and base not in ignore_set:
             return True
         for keyword in INTERESTING_NAME_KEYWORDS:
             if keyword in ignore_set:
