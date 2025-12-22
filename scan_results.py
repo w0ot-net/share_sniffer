@@ -180,6 +180,15 @@ def find_path_matches(path):
     return [keyword for keyword in INTERESTING_PATH_KEYWORDS if keyword in lowered]
 
 
+def is_exact_filename_match(base):
+    return (
+        base in INTERESTING_FILENAMES
+        or base.startswith(".env.")
+        or base in INTERESTING_XML_FILENAMES
+        or base in INTERESTING_INI_FILENAMES
+    )
+
+
 def highlight_filename(filename, matches):
     if not matches:
         return filename
@@ -279,19 +288,21 @@ def main(argv):
                 if highlighted != filename:
                     path = path[: -len(filename)] + highlighted
                 unc = f"//{host}/{share}{path}"
+                base = os.path.basename(path).lower()
+                exact_match = is_exact_filename_match(base)
                 if "nude" in all_matches:
                     primary = "nude"
                 elif all_matches:
                     primary = sorted(set(all_matches))[0]
                 else:
                     primary = "other"
-                results.append((primary, unc))
+                priority = 0 if exact_match or "nude" in all_matches else 1
+                results.append((priority, primary, unc))
     def sort_key(item):
-        primary, unc = item
-        priority = 0 if primary == "nude" else 1
+        priority, primary, unc = item
         return (priority, primary, unc.lower())
 
-    for _, unc in sorted(results, key=sort_key):
+    for _, _, unc in sorted(results, key=sort_key):
         print(unc)
     return 0
 
