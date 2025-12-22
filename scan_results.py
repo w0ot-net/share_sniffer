@@ -65,7 +65,7 @@ INTERESTING_NAME_KEYWORDS = {
     "nude",
 }
 WORD_BOUNDARY_KEYWORDS = {"key"}
-INTERESTING_XML_FILENAMES = {
+INTERESTING_EXACT_FILENAMES = {
     "web.config",
     "app.config",
     "machine.config",
@@ -133,26 +133,24 @@ INTERESTING_PATH_KEYWORDS = {
     "/home/",
     "/users/",
 }
-IGNORED_CONFIG_PATHS = {
-    "/aspnet.config",
-    "/caspol.exe.config",
-    "/config/enterprisesec.config",
-    "/config/machine.config",
-    "/config/security.config",
-    "/config/web_hightrust.config",
-    "/config/web_lowtrust.config",
-    "/config/web_mediumtrust.config",
-    "/config/web_minimaltrust.config",
-    "/configwizards.exe.config",
-    "/csc.exe.config",
-    "/cvtres.exe.config",
-    "/gacutil.exe.config",
-    "/ieexec.exe.config",
-    "/ilasm.exe.config",
-    "/jsc.exe.config",
-    "/regasm.exe.config",
-    "/regsvcs.exe.config",
-    "/vbc.exe.config",
+IGNORED_CONFIG_FILENAMES = {
+    "aspnet.config",
+    "caspol.exe.config",
+    "security.config",
+    "web_hightrust.config",
+    "web_lowtrust.config",
+    "web_mediumtrust.config",
+    "web_minimaltrust.config",
+    "configwizards.exe.config",
+    "csc.exe.config",
+    "cvtres.exe.config",
+    "gacutil.exe.config",
+    "ieexec.exe.config",
+    "ilasm.exe.config",
+    "jsc.exe.config",
+    "regasm.exe.config",
+    "regsvcs.exe.config",
+    "vbc.exe.config",
 }
 RESULTS_PATTERN = re.compile(r"^results_\\d{8}_\\d{6}$")
 
@@ -247,7 +245,7 @@ def is_exact_filename_match(base, ignore_set):
     return (
         (base in INTERESTING_FILENAMES and base not in ignore_set)
         or (base.startswith(".env.") and base not in ignore_set)
-        or (base in INTERESTING_XML_FILENAMES and base not in ignore_set)
+        or (base in INTERESTING_EXACT_FILENAMES and base not in ignore_set)
         or (base in INTERESTING_INI_FILENAMES and base not in ignore_set)
     )
 
@@ -270,14 +268,15 @@ def is_interesting(path, case_insensitive, ignore_set, keyword_patterns):
     if path.lower().endswith(".adml"):
         return False
     compare_path = path.lower() if case_insensitive else path
-    if compare_path.lower() in IGNORED_CONFIG_PATHS:
+    base_lower = os.path.basename(compare_path).lower()
+    if base_lower in IGNORED_CONFIG_FILENAMES:
         return False
     base = os.path.basename(compare_path)
     if (base in INTERESTING_FILENAMES and base not in ignore_set) or (
         base.startswith(".env.") and base not in ignore_set
     ):
         return True
-    if base in INTERESTING_XML_FILENAMES and base not in ignore_set:
+    if base in INTERESTING_EXACT_FILENAMES and base not in ignore_set:
         return True
     _, ext = os.path.splitext(compare_path)
     if ext == ".ini":
