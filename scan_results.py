@@ -63,6 +63,7 @@ INTERESTING_NAME_KEYWORDS = {
     "vault",
     "keystore",
     "id_rsa",
+    "nude",
 }
 INTERESTING_KEYWORD_PATTERNS = {
     "key": re.compile(r"\\bkey\\b", re.IGNORECASE),
