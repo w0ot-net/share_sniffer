@@ -22,8 +22,10 @@ def print_wrapper_help():
     print("  --username <name>              optional username to apply to all targets")
     print("  --domain <name>                optional domain to apply to all targets")
     print("  --password <value>             optional password to apply to all targets")
-    print("  --debug                        print smbclient output on failures")
+    print("  --verbose                      print smbclient output and wrapper commands")
     print("  -o, --output <dir>             output directory (default: ./results)")
+    print()
+    print("note: smbclient.py has its own -debug flag for protocol logging.")
 
 
 def build_smbclient_parser():
@@ -95,7 +97,7 @@ def split_args(argv):
         "username": None,
         "domain": None,
         "password": None,
-        "debug": False,
+        "verbose": False,
         "output": "./results",
     }
     idx = 0
@@ -145,13 +147,8 @@ def split_args(argv):
             wrapper["password"] = arg.split("=", 1)[1]
             idx += 1
             continue
-        if arg == "--debug":
-            wrapper["debug"] = True
-            idx += 1
-            continue
-        if arg == "-debug":
-            wrapper["debug"] = True
-            passthrough.append(arg)
+        if arg == "--verbose":
+            wrapper["verbose"] = True
             idx += 1
             continue
         if arg in ("-o", "--output"):
@@ -352,10 +349,10 @@ def main(argv):
         os.makedirs(target_dir, exist_ok=True)
         print(f"[*] {target}: enumerating shares")
 
-        code, output = run_smbclient(smbclient_path, smbclient_args, target, "shares", wrapper["debug"])
+        code, output = run_smbclient(smbclient_path, smbclient_args, target, "shares", wrapper["verbose"])
         if code != 0:
             print(f"[!] {target}: failed to enumerate shares", file=sys.stderr)
-            if wrapper["debug"] and output:
+            if wrapper["verbose"] and output:
                 print(output, file=sys.stderr)
             continue
 
@@ -376,11 +373,11 @@ def main(argv):
                 smbclient_args,
                 target,
                 command,
-                wrapper["debug"],
+                wrapper["verbose"],
             )
             if code != 0:
                 print(f"[!] {target}: {share} listing failed", file=sys.stderr)
-                if wrapper["debug"] and listing:
+                if wrapper["verbose"] and listing:
                     print(listing, file=sys.stderr)
             with open(out_path, "w", encoding="utf-8") as handle:
                 handle.write(listing)
