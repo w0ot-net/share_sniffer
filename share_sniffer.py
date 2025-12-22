@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import os
 import re
 import shutil
@@ -17,6 +18,68 @@ COMMON_SMBCLIENT_PATHS = [
 def print_wrapper_help():
     print("wrapper options:")
     print("  --targets <host|ip|file|csv>   can be repeated; file has one target per line")
+
+
+def build_smbclient_parser():
+    parser = argparse.ArgumentParser(
+        add_help=True,
+        description="SMB client implementation.",
+    )
+    parser.add_argument("-file", type=argparse.FileType("r"), help="input file with commands to execute in the mini shell")
+    parser.add_argument("-debug", action="store_true", help="Turn DEBUG output ON")
+
+    group = parser.add_argument_group("authentication")
+    group.add_argument(
+        "-hashes",
+        action="store",
+        metavar="LMHASH:NTHASH",
+        help="NTLM hashes, format is LMHASH:NTHASH",
+    )
+    group.add_argument("-no-pass", action="store_true", help="don't ask for password (useful for -k)")
+    group.add_argument(
+        "-k",
+        action="store_true",
+        help=(
+            "Use Kerberos authentication. Grabs credentials from ccache file "
+            "(KRB5CCNAME) based on target parameters. If valid credentials "
+            "cannot be found, it will use the ones specified in the command line"
+        ),
+    )
+    group.add_argument(
+        "-aesKey",
+        action="store",
+        metavar="hex key",
+        help="AES key to use for Kerberos Authentication (128 or 256 bits)",
+    )
+
+    group = parser.add_argument_group("connection")
+    group.add_argument(
+        "-dc-ip",
+        action="store",
+        metavar="ip address",
+        help=(
+            "IP Address of the domain controller. If omitted it will use the domain part "
+            "(FQDN) specified in the target parameter"
+        ),
+    )
+    group.add_argument(
+        "-target-ip",
+        action="store",
+        metavar="ip address",
+        help=(
+            "IP Address of the target machine. If omitted it will use whatever was specified as target. "
+            "This is useful when target is the NetBIOS name and you cannot resolve it"
+        ),
+    )
+    group.add_argument(
+        "-port",
+        choices=["139", "445"],
+        nargs="?",
+        default="445",
+        metavar="destination port",
+        help="Destination port to connect to SMB Server",
+    )
+    return parser
 
 
 def split_args(argv):
@@ -145,12 +208,27 @@ def main(argv):
         print("error: do not pass -c/--command; the wrapper controls commands", file=sys.stderr)
         return 1
 
-    if any(opt in ("-h", "--help") for opt in smbclient_args):
-        smbclient_path = ensure_smbclient_on_path()
-        subprocess.run([smbclient_path, "-h"], check=False)
+    parser = build_smbclient_parser()
+    try:
+        parsed, unknown = parser.parse_known_args(smbclient_args)
+    except SystemExit as exc:
+        if exc.code == 0:
+            print()
+            print_wrapper_help()
+            return 0
         print()
         print_wrapper_help()
-        return 0
+        return 1
+
+    if parsed.file is not None:
+        parsed.file.close()
+
+    if unknown:
+        print(f"error: unexpected arguments: {' '.join(unknown)}", file=sys.stderr)
+        print("hint: provide targets via --targets", file=sys.stderr)
+        print()
+        print_wrapper_help()
+        return 1
 
     smbclient_path = ensure_smbclient_on_path()
     targets = expand_targets(targets_raw)
