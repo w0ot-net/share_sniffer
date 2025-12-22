@@ -47,12 +47,14 @@ INTERESTING_NAME_KEYWORDS = {
     "api_key",
     "creds",
     "credential",
-    "key",
     "private",
     "backup",
     "vault",
     "keystore",
     "id_rsa",
+}
+INTERESTING_KEYWORD_PATTERNS = {
+    "key": re.compile(r"\\bkey\\b", re.IGNORECASE),
 }
 INTERESTING_XML_FILENAMES = {
     "web.config",
@@ -140,6 +142,9 @@ def find_filename_matches(filename):
     for keyword in INTERESTING_NAME_KEYWORDS:
         if keyword in lowered:
             matches.append(keyword)
+    for keyword, pattern in INTERESTING_KEYWORD_PATTERNS.items():
+        if pattern.search(base):
+            matches.append(keyword)
     _, ext = os.path.splitext(lowered)
     if ext in INTERESTING_EXTS:
         matches.append(ext)
@@ -171,6 +176,9 @@ def is_interesting(path):
         return True
     for keyword in INTERESTING_NAME_KEYWORDS:
         if keyword in base:
+            return True
+    for pattern in INTERESTING_KEYWORD_PATTERNS.values():
+        if pattern.search(base):
             return True
     for keyword in INTERESTING_PATH_KEYWORDS:
         if keyword in lowered:
