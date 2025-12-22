@@ -22,6 +22,7 @@ def print_wrapper_help():
     print("  --username <name>              optional username to apply to all targets")
     print("  --domain <name>                optional domain to apply to all targets")
     print("  --password <value>             optional password to apply to all targets")
+    print("  --debug                        print smbclient output on failures")
 
 
 def build_smbclient_parser():
@@ -93,6 +94,7 @@ def split_args(argv):
         "username": None,
         "domain": None,
         "password": None,
+        "debug": False,
     }
     idx = 0
     while idx < len(argv):
@@ -139,6 +141,10 @@ def split_args(argv):
             continue
         if arg.startswith("--password="):
             wrapper["password"] = arg.split("=", 1)[1]
+            idx += 1
+            continue
+        if arg == "--debug":
+            wrapper["debug"] = True
             idx += 1
             continue
         passthrough.append(arg)
@@ -226,7 +232,7 @@ def build_target(target, username, domain, password):
     return f"{userpart}@{target}"
 
 
-def run_smbclient(smbclient_path, smbclient_args, target, command):
+def run_smbclient(smbclient_path, smbclient_args, target, command, debug):
     temp_path = None
     try:
         with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as handle:
@@ -246,6 +252,8 @@ def run_smbclient(smbclient_path, smbclient_args, target, command):
         if output and not output.endswith("\n"):
             output += "\n"
         output += result.stderr
+    if debug:
+        print(f"[debug] smbclient cmd: {' '.join(cmd)}")
     return result.returncode, output
 
 
@@ -324,9 +332,11 @@ def main(argv):
         os.makedirs(target_dir, exist_ok=True)
         print(f"[*] {target}: enumerating shares")
 
-        code, output = run_smbclient(smbclient_path, smbclient_args, target, "shares")
+        code, output = run_smbclient(smbclient_path, smbclient_args, target, "shares", wrapper["debug"])
         if code != 0:
             print(f"[!] {target}: failed to enumerate shares", file=sys.stderr)
+            if wrapper["debug"] and output:
+                print(output, file=sys.stderr)
             continue
 
         shares = parse_shares(output)
@@ -341,7 +351,13 @@ def main(argv):
             print(f"[+] {target}: {share} -> {out_path}")
 
             command = f'use "{share}"\nrecurse\nls'
-            _, listing = run_smbclient(smbclient_path, smbclient_args, target, command)
+            _, listing = run_smbclient(
+                smbclient_path,
+                smbclient_args,
+                target,
+                command,
+                wrapper["debug"],
+            )
             with open(out_path, "w", encoding="utf-8") as handle:
                 handle.write(listing)
 
