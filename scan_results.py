@@ -61,6 +61,35 @@ INTERESTING_XML_FILENAMES = {
     "applicationhost.config",
     "webservices.config",
 }
+INTERESTING_FILENAMES = {
+    ".env",
+    ".env.local",
+    ".env.dev",
+    ".env.development",
+    ".env.stage",
+    ".env.staging",
+    ".env.prod",
+    ".env.production",
+    ".netrc",
+    ".pgpass",
+    ".my.cnf",
+    ".git-credentials",
+    "credentials",
+    "credential",
+    "creds",
+    "secrets",
+    "secret",
+    "id_rsa",
+    "id_dsa",
+    "id_ecdsa",
+    "id_ed25519",
+    "id_rsa.ppk",
+    "id_dsa.ppk",
+    "id_ecdsa.ppk",
+    "id_ed25519.ppk",
+    "known_hosts",
+    "rdp.rdp",
+}
 INTERESTING_PATH_KEYWORDS = {
     "/config/",
     "/secrets/",
@@ -105,6 +134,9 @@ def extract_host(target_folder):
 def find_filename_matches(filename):
     matches = []
     lowered = filename.lower()
+    base = os.path.basename(lowered)
+    if base in INTERESTING_FILENAMES or base.startswith(".env."):
+        matches.append(base)
     for keyword in INTERESTING_NAME_KEYWORDS:
         if keyword in lowered:
             matches.append(keyword)
@@ -130,6 +162,8 @@ def is_interesting(path):
         return False
     lowered = path.lower()
     base = os.path.basename(lowered)
+    if base in INTERESTING_FILENAMES or base.startswith(".env."):
+        return True
     if base in INTERESTING_XML_FILENAMES:
         return True
     _, ext = os.path.splitext(lowered)
