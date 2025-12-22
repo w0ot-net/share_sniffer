@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
 
 COMMON_SMBCLIENT_PATHS = [
@@ -226,8 +227,20 @@ def build_target(target, username, domain, password):
 
 
 def run_smbclient(smbclient_path, smbclient_args, target, command):
-    cmd = [smbclient_path] + smbclient_args + ["-c", command, target]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as handle:
+            handle.write(command)
+            handle.write("\n")
+            temp_path = handle.name
+        cmd = [smbclient_path] + smbclient_args + ["-file", temp_path, target]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+    finally:
+        if temp_path:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
     output = result.stdout or ""
     if result.stderr:
         if output and not output.endswith("\n"):
@@ -259,10 +272,6 @@ def main(argv):
         print_wrapper_help()
         return 1
 
-    if any(opt in ("-c", "--command") for opt in smbclient_args):
-        print("error: do not pass -c/--command; the wrapper controls commands", file=sys.stderr)
-        return 1
-
     parser = build_smbclient_parser()
     try:
         parsed, unknown = parser.parse_known_args(smbclient_args)
@@ -277,6 +286,8 @@ def main(argv):
 
     if parsed.file is not None:
         parsed.file.close()
+        print("error: do not pass -file; the wrapper manages commands", file=sys.stderr)
+        return 1
 
     if unknown:
         print(f"error: unexpected arguments: {' '.join(unknown)}", file=sys.stderr)
@@ -329,7 +340,7 @@ def main(argv):
             out_path = os.path.join(share_dir, "files.txt")
             print(f"[+] {target}: {share} -> {out_path}")
 
-            command = f'use "{share}"; recurse; ls'
+            command = f'use "{share}"\nrecurse\nls'
             _, listing = run_smbclient(smbclient_path, smbclient_args, target, command)
             with open(out_path, "w", encoding="utf-8") as handle:
                 handle.write(listing)
