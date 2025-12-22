@@ -247,6 +247,19 @@ def sanitize_target(target):
     return re.sub(r"[^A-Za-z0-9._-]", "_", target)
 
 
+def target_for_folder(target):
+    if "@" not in target:
+        return target
+    userpart, host = target.split("@", 1)
+    if "/" in userpart:
+        userpart = userpart.split("/", 1)[1]
+    if ":" in userpart:
+        userpart = userpart.split(":", 1)[0]
+    if not userpart:
+        return host
+    return f"{userpart}@{host}"
+
+
 def build_target(target, username, domain, password):
     if "@" in target:
         return target
@@ -410,7 +423,8 @@ def main(argv):
     os.makedirs(output_root, exist_ok=True)
 
     for target in targets:
-        target_dir = os.path.join(output_root, sanitize_target(target))
+        folder_target = target_for_folder(target)
+        target_dir = os.path.join(output_root, sanitize_target(folder_target))
         os.makedirs(target_dir, exist_ok=True)
         print(f"[*] {target}: enumerating shares")
 
