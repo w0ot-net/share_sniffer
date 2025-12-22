@@ -13,3 +13,9 @@ outputs a directory per target, then per share, with a `files.txt` recursive lis
 ```
 ./results_<timestamp>/<target>/<share>/files.txt
 ```
+
+## scan results
+```
+./scan_results.py
+./scan_results.py -d ./results_20240101_120000
+```
