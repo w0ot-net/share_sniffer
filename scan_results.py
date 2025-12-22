@@ -162,6 +162,11 @@ def find_filename_matches(filename):
     return matches
 
 
+def find_path_matches(path):
+    lowered = path.lower()
+    return [keyword for keyword in INTERESTING_PATH_KEYWORDS if keyword in lowered]
+
+
 def highlight_filename(filename, matches):
     if not matches:
         return filename
@@ -236,6 +241,7 @@ def main(argv):
         print(f"error: results directory not found: {results_dir}", file=sys.stderr)
         return 1
 
+    results = []
     for root, _, files in os.walk(results_dir):
         if "files.txt" not in files:
             continue
@@ -253,12 +259,20 @@ def main(argv):
                 if not path.startswith("/"):
                     path = "/" + path.lstrip("/")
                 filename = os.path.basename(path)
-                matches = find_filename_matches(filename)
-                highlighted = highlight_filename(filename, matches)
+                filename_matches = find_filename_matches(filename)
+                path_matches = find_path_matches(path)
+                all_matches = filename_matches + path_matches
+                highlighted = highlight_filename(filename, filename_matches)
                 if highlighted != filename:
                     path = path[: -len(filename)] + highlighted
                 unc = f"//{host}/{share}{path}"
-                print(unc)
+                if all_matches:
+                    primary = sorted(set(all_matches))[0]
+                else:
+                    primary = "other"
+                results.append((primary, unc))
+    for _, unc in sorted(results, key=lambda item: (item[0], item[1].lower())):
+        print(unc)
     return 0
 
 
