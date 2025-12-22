@@ -203,6 +203,8 @@ def is_interesting(path):
         return False
     if os.path.basename(path).lower() == "thumbs.db":
         return False
+    if path.lower().endswith(".adml"):
+        return False
     lowered = path.lower()
     base = os.path.basename(lowered)
     if base in INTERESTING_FILENAMES or base.startswith(".env."):
