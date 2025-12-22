@@ -34,6 +34,12 @@ def build_smbclient_parser():
         description="SMB client implementation.",
     )
     parser.add_argument(
+        "-file",
+        action="store",
+        metavar="FILE",
+        help="input file with commands to execute in the mini shell (legacy)",
+    )
+    parser.add_argument(
         "-inputfile",
         action="store",
         metavar="INPUTFILE",
@@ -258,14 +264,14 @@ def build_target(target, username, domain, password):
     return f"{userpart}@{target}"
 
 
-def run_smbclient(smbclient_path, smbclient_args, target, command, debug):
+def run_smbclient(smbclient_path, smbclient_args, target, command, debug, input_flag):
     temp_path = None
     try:
         with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as handle:
             handle.write(command)
             handle.write("\n")
             temp_path = handle.name
-        cmd = [smbclient_path] + smbclient_args + ["-inputfile", temp_path, target]
+        cmd = [smbclient_path] + smbclient_args + [input_flag, temp_path, target]
         result = subprocess.run(cmd, capture_output=True, text=True)
     finally:
         if temp_path:
@@ -289,14 +295,35 @@ def parse_shares(output):
         line = line.strip()
         if not line:
             continue
-        if line.lower().startswith("sharename") or line.startswith("----"):
+        if line.startswith("#"):
+            continue
+        lower = line.lower()
+        if lower.startswith("sharename") or line.startswith("----"):
             continue
         if line.startswith("SMB") or line.startswith("Authentication"):
+            continue
+        if line.startswith("Impacket v"):
+            continue
+        if line.startswith("[*]") or line.startswith("[-]"):
+            continue
+        if lower.startswith("usage:") or lower.startswith("smbclient.py:"):
+            continue
+        if "executing commands from" in lower:
             continue
         parts = re.split(r"\s{2,}", line)
         if parts and parts[0]:
             shares.append(parts[0])
     return shares
+
+
+def detect_input_flag(smbclient_path):
+    result = subprocess.run([smbclient_path, "-h"], capture_output=True, text=True)
+    combined = (result.stdout or "") + (result.stderr or "")
+    if "-inputfile" in combined:
+        return "-inputfile"
+    if "-file" in combined:
+        return "-file"
+    return "-inputfile"
 
 
 def main(argv):
@@ -318,8 +345,16 @@ def main(argv):
         print_wrapper_help()
         return 1
 
+    if parsed.file is not None:
+        print("error: do not pass -file; the wrapper manages commands", file=sys.stderr)
+        return 1
+
     if parsed.inputfile is not None:
         print("error: do not pass -inputfile; the wrapper manages commands", file=sys.stderr)
+        return 1
+
+    if parsed.outputfile is not None:
+        print("error: do not pass -outputfile; the wrapper manages output", file=sys.stderr)
         return 1
 
     if unknown:
@@ -330,6 +365,7 @@ def main(argv):
         return 1
 
     smbclient_path = ensure_smbclient_on_path()
+    input_flag = detect_input_flag(smbclient_path)
     targets = expand_targets(targets_raw)
     if not targets:
         print("error: no targets provided", file=sys.stderr)
@@ -360,7 +396,14 @@ def main(argv):
         os.makedirs(target_dir, exist_ok=True)
         print(f"[*] {target}: enumerating shares")
 
-        code, output = run_smbclient(smbclient_path, smbclient_args, target, "shares", wrapper["verbose"])
+        code, output = run_smbclient(
+            smbclient_path,
+            smbclient_args,
+            target,
+            "shares",
+            wrapper["verbose"],
+            input_flag,
+        )
         if code != 0:
             print(f"[!] {target}: failed to enumerate shares", file=sys.stderr)
             if wrapper["verbose"] and output:
@@ -378,13 +421,14 @@ def main(argv):
             out_path = os.path.join(share_dir, "files.txt")
             print(f"[+] {target}: {share} -> {out_path}")
 
-            command = f'use "{share}"\nrecurse\nls'
+            command = f"use {share}\ntree"
             code, listing = run_smbclient(
                 smbclient_path,
                 smbclient_args,
                 target,
                 command,
                 wrapper["verbose"],
+                input_flag,
             )
             if code != 0:
                 print(f"[!] {target}: {share} listing failed", file=sys.stderr)
