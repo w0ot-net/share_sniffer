@@ -289,6 +289,22 @@ def run_smbclient(smbclient_path, smbclient_args, target, command, debug, input_
     return result.returncode, output
 
 
+def is_share_readable(output, returncode):
+    if returncode != 0:
+        return False
+    lowered = output.lower()
+    blocked_markers = [
+        "status_access_denied",
+        "access is denied",
+        "status_bad_network_name",
+        "no share selected",
+        "not logged in",
+        "status_logon_failure",
+        "smb sessionerror",
+    ]
+    return not any(marker in lowered for marker in blocked_markers)
+
+
 def parse_shares(output):
     shares = []
     for line in output.splitlines():
@@ -416,11 +432,6 @@ def main(argv):
             continue
 
         for share in shares:
-            share_dir = os.path.join(target_dir, share)
-            os.makedirs(share_dir, exist_ok=True)
-            out_path = os.path.join(share_dir, "files.txt")
-            print(f"[+] {target}: {share} -> {out_path}")
-
             command = f"use {share}\ntree"
             code, listing = run_smbclient(
                 smbclient_path,
@@ -430,10 +441,17 @@ def main(argv):
                 wrapper["verbose"],
                 input_flag,
             )
-            if code != 0:
-                print(f"[!] {target}: {share} listing failed", file=sys.stderr)
-                if wrapper["verbose"] and listing:
-                    print(listing, file=sys.stderr)
+            if not is_share_readable(listing, code):
+                if wrapper["verbose"]:
+                    print(f"[!] {target}: {share} not readable, skipping", file=sys.stderr)
+                    if listing:
+                        print(listing, file=sys.stderr)
+                continue
+
+            share_dir = os.path.join(target_dir, share)
+            os.makedirs(share_dir, exist_ok=True)
+            out_path = os.path.join(share_dir, "files.txt")
+            print(f"[+] {target}: {share} -> {out_path}")
             with open(out_path, "w", encoding="utf-8") as handle:
                 handle.write(listing)
 
