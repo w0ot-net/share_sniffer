@@ -5,7 +5,65 @@ import re
 import sys
 
 
-INTERESTING_EXTS = {".html", ".php", ".vbs", ".ps1", ".ashx", ".asmx", ".pl", ".py"}
+INTERESTING_EXTS = {
+    ".html",
+    ".php",
+    ".vbs",
+    ".ps1",
+    ".ashx",
+    ".asmx",
+    ".pl",
+    ".py",
+    ".conf",
+    ".config",
+    ".ini",
+    ".yml",
+    ".yaml",
+    ".xml",
+    ".json",
+    ".env",
+    ".bak",
+    ".old",
+    ".swp",
+    ".sql",
+    ".db",
+    ".sqlite",
+    ".pfx",
+    ".p12",
+    ".key",
+    ".pem",
+    ".crt",
+    ".cer",
+    ".kdbx",
+    ".rdp",
+}
+INTERESTING_NAME_KEYWORDS = {
+    "admin",
+    "password",
+    "passwd",
+    "pwd",
+    "secret",
+    "token",
+    "apikey",
+    "api_key",
+    "creds",
+    "credential",
+    "key",
+    "private",
+    "backup",
+    "vault",
+    "keystore",
+    "id_rsa",
+}
+INTERESTING_PATH_KEYWORDS = {
+    "/config/",
+    "/secrets/",
+    "/backup/",
+    "/old/",
+    "/tmp/",
+    "/home/",
+    "/users/",
+}
 RESULTS_PATTERN = re.compile(r"^results_\\d{8}_\\d{6}$")
 
 
@@ -42,8 +100,18 @@ def is_interesting(path):
     path = path.strip().rstrip("/")
     if not path:
         return False
-    _, ext = os.path.splitext(path)
-    return ext.lower() in INTERESTING_EXTS
+    lowered = path.lower()
+    _, ext = os.path.splitext(lowered)
+    if ext in INTERESTING_EXTS:
+        return True
+    base = os.path.basename(lowered)
+    for keyword in INTERESTING_NAME_KEYWORDS:
+        if keyword in base:
+            return True
+    for keyword in INTERESTING_PATH_KEYWORDS:
+        if keyword in lowered:
+            return True
+    return False
 
 
 def parse_tree_output(lines):
