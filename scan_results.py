@@ -65,9 +65,7 @@ INTERESTING_NAME_KEYWORDS = {
     "id_rsa",
     "nude",
 }
-INTERESTING_KEYWORD_PATTERNS = {
-    "key": re.compile(r"\\bkey\\b", re.IGNORECASE),
-}
+WORD_BOUNDARY_KEYWORDS = {"key"}
 INTERESTING_XML_FILENAMES = {
     "web.config",
     "app.config",
@@ -135,6 +133,19 @@ def parse_args(argv):
         dest="results_dir",
         help="Results directory to scan (defaults to most recent results_<timestamp>)",
     )
+    parser.add_argument(
+        "-v",
+        "--ignore",
+        action="append",
+        default=[],
+        help="Keyword to ignore (can be repeated).",
+    )
+    parser.add_argument(
+        "-i",
+        "--case-insensitive",
+        action="store_true",
+        help="Match keywords case-insensitively.",
+    )
     return parser.parse_args(argv)
 
 
@@ -154,19 +165,31 @@ def extract_host(target_folder):
     return target_folder
 
 
-def find_filename_matches(filename):
+def build_keyword_patterns(case_insensitive):
+    patterns = {}
+    flags = re.IGNORECASE if case_insensitive else 0
+    for keyword in WORD_BOUNDARY_KEYWORDS:
+        patterns[keyword] = re.compile(rf"\b{re.escape(keyword)}\b", flags)
+    return patterns
+
+
+def find_filename_matches(filename, case_insensitive, ignore_set, keyword_patterns):
     matches = []
-    lowered = filename.lower()
-    base = os.path.basename(lowered)
-    if base in INTERESTING_FILENAMES or base.startswith(".env."):
+    compare_name = filename.lower() if case_insensitive else filename
+    base = os.path.basename(compare_name)
+    if (base in INTERESTING_FILENAMES or base.startswith(".env.")) and base not in ignore_set:
         matches.append(base)
     for keyword in INTERESTING_NAME_KEYWORDS:
-        if keyword in lowered:
+        if keyword in ignore_set:
+            continue
+        if keyword in compare_name:
             matches.append(keyword)
-    for keyword, pattern in INTERESTING_KEYWORD_PATTERNS.items():
+    for keyword, pattern in keyword_patterns.items():
+        if keyword in ignore_set:
+            continue
         if pattern.search(base):
             matches.append(keyword)
-    _, ext = os.path.splitext(lowered)
+    _, ext = os.path.splitext(compare_name)
     if ext in INTERESTING_EXTS:
         matches.append(ext)
     if ext == ".ini":
@@ -175,29 +198,36 @@ def find_filename_matches(filename):
     return matches
 
 
-def find_path_matches(path):
-    lowered = path.lower()
-    return [keyword for keyword in INTERESTING_PATH_KEYWORDS if keyword in lowered]
+def find_path_matches(path, case_insensitive, ignore_set):
+    compare_path = path.lower() if case_insensitive else path
+    matches = []
+    for keyword in INTERESTING_PATH_KEYWORDS:
+        if keyword in ignore_set:
+            continue
+        if keyword in compare_path:
+            matches.append(keyword)
+    return matches
 
 
-def is_exact_filename_match(base):
+def is_exact_filename_match(base, ignore_set):
     return (
-        base in INTERESTING_FILENAMES
-        or base.startswith(".env.")
-        or base in INTERESTING_XML_FILENAMES
-        or base in INTERESTING_INI_FILENAMES
+        (base in INTERESTING_FILENAMES and base not in ignore_set)
+        or (base.startswith(".env.") and base not in ignore_set)
+        or (base in INTERESTING_XML_FILENAMES and base not in ignore_set)
+        or (base in INTERESTING_INI_FILENAMES and base not in ignore_set)
     )
 
 
-def highlight_filename(filename, matches):
+def highlight_filename(filename, matches, case_insensitive):
     if not matches:
         return filename
     pattern = "|".join(re.escape(m) for m in sorted(set(matches), key=len, reverse=True))
-    regex = re.compile(pattern, re.IGNORECASE)
+    flags = re.IGNORECASE if case_insensitive else 0
+    regex = re.compile(pattern, flags)
     return regex.sub(lambda m: f"\x1b[31m{m.group(0)}\x1b[0m", filename)
 
 
-def is_interesting(path):
+def is_interesting(path, case_insensitive, ignore_set, keyword_patterns):
     path = path.strip().rstrip("/")
     if not path:
         return False
@@ -205,33 +235,45 @@ def is_interesting(path):
         return False
     if path.lower().endswith(".adml"):
         return False
-    lowered = path.lower()
-    base = os.path.basename(lowered)
-    if base in INTERESTING_FILENAMES or base.startswith(".env."):
+    compare_path = path.lower() if case_insensitive else path
+    base = os.path.basename(compare_path)
+    if (base in INTERESTING_FILENAMES and base not in ignore_set) or (
+        base.startswith(".env.") and base not in ignore_set
+    ):
         return True
-    if base in INTERESTING_XML_FILENAMES:
+    if base in INTERESTING_XML_FILENAMES and base not in ignore_set:
         return True
-    _, ext = os.path.splitext(lowered)
+    _, ext = os.path.splitext(compare_path)
     if ext == ".ini":
-        if base in INTERESTING_INI_FILENAMES:
+        if base in INTERESTING_INI_FILENAMES and base not in ignore_set:
             return True
         for keyword in INTERESTING_NAME_KEYWORDS:
+            if keyword in ignore_set:
+                continue
             if keyword in base:
                 return True
-        for pattern in INTERESTING_KEYWORD_PATTERNS.values():
+        for keyword, pattern in keyword_patterns.items():
+            if keyword in ignore_set:
+                continue
             if pattern.search(base):
                 return True
         return False
     if ext in INTERESTING_EXTS:
         return True
     for keyword in INTERESTING_NAME_KEYWORDS:
+        if keyword in ignore_set:
+            continue
         if keyword in base:
             return True
-    for pattern in INTERESTING_KEYWORD_PATTERNS.values():
+    for keyword, pattern in keyword_patterns.items():
+        if keyword in ignore_set:
+            continue
         if pattern.search(base):
             return True
     for keyword in INTERESTING_PATH_KEYWORDS:
-        if keyword in lowered:
+        if keyword in ignore_set:
+            continue
+        if keyword in compare_path:
             return True
     return False
 
@@ -265,6 +307,11 @@ def main(argv):
         print(f"error: results directory not found: {results_dir}", file=sys.stderr)
         return 1
 
+    ignore_set = set(args.ignore)
+    if args.case_insensitive:
+        ignore_set = {item.lower() for item in ignore_set}
+    keyword_patterns = build_keyword_patterns(args.case_insensitive)
+
     results = []
     for root, _, files in os.walk(results_dir):
         if "files.txt" not in files:
@@ -278,27 +325,35 @@ def main(argv):
         host = extract_host(target_folder)
         with open(files_path, "r", encoding="utf-8", errors="replace") as handle:
             for path in parse_tree_output(handle):
-                if not is_interesting(path):
+                if not is_interesting(path, args.case_insensitive, ignore_set, keyword_patterns):
                     continue
                 if not path.startswith("/"):
                     path = "/" + path.lstrip("/")
                 filename = os.path.basename(path)
-                filename_matches = find_filename_matches(filename)
-                path_matches = find_path_matches(path)
+                filename_matches = find_filename_matches(
+                    filename,
+                    args.case_insensitive,
+                    ignore_set,
+                    keyword_patterns,
+                )
+                path_matches = find_path_matches(path, args.case_insensitive, ignore_set)
                 all_matches = filename_matches + path_matches
-                highlighted = highlight_filename(filename, filename_matches)
+                highlighted = highlight_filename(filename, filename_matches, args.case_insensitive)
                 if highlighted != filename:
                     path = path[: -len(filename)] + highlighted
                 unc = f"//{host}/{share}{path}"
-                base = os.path.basename(path).lower()
-                exact_match = is_exact_filename_match(base)
+                base = os.path.basename(path)
+                base_compare = base.lower() if args.case_insensitive else base
+                exact_match = is_exact_filename_match(base_compare, ignore_set)
                 if "nude" in all_matches:
                     primary = "nude"
+                elif "password" in all_matches:
+                    primary = "password"
                 elif all_matches:
                     primary = sorted(set(all_matches))[0]
                 else:
                     primary = "other"
-                priority = 0 if exact_match or "nude" in all_matches else 1
+                priority = 0 if exact_match or "nude" in all_matches or "password" in all_matches else 1
                 results.append((priority, primary, unc))
     def sort_key(item):
         priority, primary, unc = item
