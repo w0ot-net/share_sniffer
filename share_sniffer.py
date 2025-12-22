@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import argparse
 import os
 import re
 import shutil
@@ -15,33 +14,30 @@ COMMON_SMBCLIENT_PATHS = [
 ]
 
 
-def parse_args(argv):
-    parser = argparse.ArgumentParser(
-        description=(
-            "Wrapper around impacket's smbclient.py to enumerate shares and "
-            "recursively list files for multiple targets."
-        )
-    )
-    parser.add_argument(
-        "--targets",
-        action="append",
-        required=True,
-        help=(
-            "Target hostname/IP, a comma-separated list, or a file path with one "
-            "target per line. Can be specified multiple times."
-        ),
-    )
-    args, smbclient_args = parser.parse_known_args(argv)
+def print_wrapper_help():
+    print("wrapper options:")
+    print("  --targets <host|ip|file|csv>   can be repeated; file has one target per line")
 
-    if any(opt in ("-h", "--help") for opt in smbclient_args):
-        parser.print_help()
-        return None, None
 
-    if any(opt in ("-c", "--command") for opt in smbclient_args):
-        print("error: do not pass -c/--command; the wrapper controls commands", file=sys.stderr)
-        return None, None
-
-    return args, smbclient_args
+def split_args(argv):
+    targets = []
+    passthrough = []
+    idx = 0
+    while idx < len(argv):
+        arg = argv[idx]
+        if arg == "--targets":
+            if idx + 1 >= len(argv):
+                return None, None, "error: --targets requires a value"
+            targets.append(argv[idx + 1])
+            idx += 2
+            continue
+        if arg.startswith("--targets="):
+            targets.append(arg.split("=", 1)[1])
+            idx += 1
+            continue
+        passthrough.append(arg)
+        idx += 1
+    return targets, passthrough, None
 
 
 def expand_targets(raw_targets):
@@ -139,12 +135,25 @@ def parse_shares(output):
 
 
 def main(argv):
-    args, smbclient_args = parse_args(argv)
-    if args is None:
+    targets_raw, smbclient_args, err = split_args(argv)
+    if err:
+        print(err, file=sys.stderr)
+        print_wrapper_help()
         return 1
 
+    if any(opt in ("-c", "--command") for opt in smbclient_args):
+        print("error: do not pass -c/--command; the wrapper controls commands", file=sys.stderr)
+        return 1
+
+    if any(opt in ("-h", "--help") for opt in smbclient_args):
+        smbclient_path = ensure_smbclient_on_path()
+        subprocess.run([smbclient_path, "-h"], check=False)
+        print()
+        print_wrapper_help()
+        return 0
+
     smbclient_path = ensure_smbclient_on_path()
-    targets = expand_targets(args.targets)
+    targets = expand_targets(targets_raw)
     if not targets:
         print("error: no targets provided", file=sys.stderr)
         return 1
