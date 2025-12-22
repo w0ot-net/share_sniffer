@@ -279,12 +279,19 @@ def main(argv):
                 if highlighted != filename:
                     path = path[: -len(filename)] + highlighted
                 unc = f"//{host}/{share}{path}"
-                if all_matches:
+                if "nude" in all_matches:
+                    primary = "nude"
+                elif all_matches:
                     primary = sorted(set(all_matches))[0]
                 else:
                     primary = "other"
                 results.append((primary, unc))
-    for _, unc in sorted(results, key=lambda item: (item[0], item[1].lower())):
+    def sort_key(item):
+        primary, unc = item
+        priority = 0 if primary == "nude" else 1
+        return (priority, primary, unc.lower())
+
+    for _, unc in sorted(results, key=sort_key):
         print(unc)
     return 0
 
