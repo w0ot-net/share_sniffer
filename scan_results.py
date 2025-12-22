@@ -96,6 +96,26 @@ def extract_host(target_folder):
     return target_folder
 
 
+def find_filename_matches(filename):
+    matches = []
+    lowered = filename.lower()
+    for keyword in INTERESTING_NAME_KEYWORDS:
+        if keyword in lowered:
+            matches.append(keyword)
+    _, ext = os.path.splitext(lowered)
+    if ext in INTERESTING_EXTS:
+        matches.append(ext)
+    return matches
+
+
+def highlight_filename(filename, matches):
+    if not matches:
+        return filename
+    pattern = "|".join(re.escape(m) for m in sorted(set(matches), key=len, reverse=True))
+    regex = re.compile(pattern, re.IGNORECASE)
+    return regex.sub(lambda m: f"\x1b[31m{m.group(0)}\x1b[0m", filename)
+
+
 def is_interesting(path):
     path = path.strip().rstrip("/")
     if not path:
@@ -159,6 +179,11 @@ def main(argv):
                     continue
                 if not path.startswith("/"):
                     path = "/" + path.lstrip("/")
+                filename = os.path.basename(path)
+                matches = find_filename_matches(filename)
+                highlighted = highlight_filename(filename, matches)
+                if highlighted != filename:
+                    path = path[: -len(filename)] + highlighted
                 unc = f"//{host}/{share}{path}"
                 print(unc)
     return 0
