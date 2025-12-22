@@ -23,6 +23,7 @@ def print_wrapper_help():
     print("  --domain <name>                optional domain to apply to all targets")
     print("  --password <value>             optional password to apply to all targets")
     print("  --debug                        print smbclient output on failures")
+    print("  -o, --output <dir>             output directory (default: ./results)")
 
 
 def build_smbclient_parser():
@@ -95,6 +96,7 @@ def split_args(argv):
         "domain": None,
         "password": None,
         "debug": False,
+        "output": "./results",
     }
     idx = 0
     while idx < len(argv):
@@ -145,6 +147,16 @@ def split_args(argv):
             continue
         if arg == "--debug":
             wrapper["debug"] = True
+            idx += 1
+            continue
+        if arg in ("-o", "--output"):
+            if idx + 1 >= len(argv):
+                return None, None, None, f"error: {arg} requires a value"
+            wrapper["output"] = argv[idx + 1]
+            idx += 2
+            continue
+        if arg.startswith("--output="):
+            wrapper["output"] = arg.split("=", 1)[1]
             idx += 1
             continue
         passthrough.append(arg)
@@ -327,8 +339,11 @@ def main(argv):
             print(str(exc), file=sys.stderr)
             return 1
 
+    output_root = wrapper["output"]
+    os.makedirs(output_root, exist_ok=True)
+
     for target in targets:
-        target_dir = sanitize_target(target)
+        target_dir = os.path.join(output_root, sanitize_target(target))
         os.makedirs(target_dir, exist_ok=True)
         print(f"[*] {target}: enumerating shares")
 
