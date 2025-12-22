@@ -120,6 +120,8 @@ def is_interesting(path):
     path = path.strip().rstrip("/")
     if not path:
         return False
+    if os.path.basename(path).lower() == "thumbs.db":
+        return False
     lowered = path.lower()
     _, ext = os.path.splitext(lowered)
     if ext in INTERESTING_EXTS:
