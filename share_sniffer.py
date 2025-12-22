@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import datetime
 import os
 import re
 import shutil
@@ -23,7 +24,7 @@ def print_wrapper_help():
     print("  --domain <name>                optional domain to apply to all targets")
     print("  --password <value>             optional password to apply to all targets")
     print("  --verbose                      print smbclient output and wrapper commands")
-    print("  -o, --output <dir>             output directory (default: ./results)")
+    print("  -o, --output <dir>             output directory (default: ./results_<timestamp>)")
     print()
     print("note: smbclient.py has its own -debug flag for protocol logging.")
 
@@ -111,12 +112,13 @@ def build_smbclient_parser():
 def split_args(argv):
     targets = []
     passthrough = []
+    default_output = f"./results_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
     wrapper = {
         "username": None,
         "domain": None,
         "password": None,
         "verbose": False,
-        "output": "./results",
+        "output": default_output,
     }
     idx = 0
     while idx < len(argv):

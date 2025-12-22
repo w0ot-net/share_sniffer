@@ -11,5 +11,5 @@ scan smb shares using impacket's smbclient
 
 outputs a directory per target, then per share, with a `files.txt` recursive listing:
 ```
-./results/<target>/<share>/files.txt
+./results_<timestamp>/<target>/<share>/files.txt
 ```
