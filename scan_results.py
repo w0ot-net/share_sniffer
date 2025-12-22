@@ -19,7 +19,6 @@ INTERESTING_EXTS = {
     ".ini",
     ".yml",
     ".yaml",
-    ".xml",
     ".json",
     ".env",
     ".bak",
