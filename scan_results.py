@@ -120,6 +120,27 @@ INTERESTING_PATH_KEYWORDS = {
     "/home/",
     "/users/",
 }
+IGNORED_CONFIG_PATHS = {
+    "/aspnet.config",
+    "/caspol.exe.config",
+    "/config/enterprisesec.config",
+    "/config/machine.config",
+    "/config/security.config",
+    "/config/web_hightrust.config",
+    "/config/web_lowtrust.config",
+    "/config/web_mediumtrust.config",
+    "/config/web_minimaltrust.config",
+    "/configwizards.exe.config",
+    "/csc.exe.config",
+    "/cvtres.exe.config",
+    "/gacutil.exe.config",
+    "/ieexec.exe.config",
+    "/ilasm.exe.config",
+    "/jsc.exe.config",
+    "/regasm.exe.config",
+    "/regsvcs.exe.config",
+    "/vbc.exe.config",
+}
 RESULTS_PATTERN = re.compile(r"^results_\\d{8}_\\d{6}$")
 
 
@@ -236,6 +257,8 @@ def is_interesting(path, case_insensitive, ignore_set, keyword_patterns):
     if path.lower().endswith(".adml"):
         return False
     compare_path = path.lower() if case_insensitive else path
+    if compare_path.lower() in IGNORED_CONFIG_PATHS:
+        return False
     base = os.path.basename(compare_path)
     if (base in INTERESTING_FILENAMES and base not in ignore_set) or (
         base.startswith(".env.") and base not in ignore_set
