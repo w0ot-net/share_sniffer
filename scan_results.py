@@ -54,6 +54,13 @@ INTERESTING_NAME_KEYWORDS = {
     "keystore",
     "id_rsa",
 }
+INTERESTING_XML_FILENAMES = {
+    "web.config",
+    "app.config",
+    "machine.config",
+    "applicationhost.config",
+    "webservices.config",
+}
 INTERESTING_PATH_KEYWORDS = {
     "/config/",
     "/secrets/",
@@ -122,10 +129,12 @@ def is_interesting(path):
     if os.path.basename(path).lower() == "thumbs.db":
         return False
     lowered = path.lower()
+    base = os.path.basename(lowered)
+    if base in INTERESTING_XML_FILENAMES:
+        return True
     _, ext = os.path.splitext(lowered)
     if ext in INTERESTING_EXTS:
         return True
-    base = os.path.basename(lowered)
     for keyword in INTERESTING_NAME_KEYWORDS:
         if keyword in base:
             return True
