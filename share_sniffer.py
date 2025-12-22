@@ -149,6 +149,11 @@ def split_args(argv):
             wrapper["debug"] = True
             idx += 1
             continue
+        if arg == "-debug":
+            wrapper["debug"] = True
+            passthrough.append(arg)
+            idx += 1
+            continue
         if arg in ("-o", "--output"):
             if idx + 1 >= len(argv):
                 return None, None, None, f"error: {arg} requires a value"
@@ -366,13 +371,17 @@ def main(argv):
             print(f"[+] {target}: {share} -> {out_path}")
 
             command = f'use "{share}"\nrecurse\nls'
-            _, listing = run_smbclient(
+            code, listing = run_smbclient(
                 smbclient_path,
                 smbclient_args,
                 target,
                 command,
                 wrapper["debug"],
             )
+            if code != 0:
+                print(f"[!] {target}: {share} listing failed", file=sys.stderr)
+                if wrapper["debug"] and listing:
+                    print(listing, file=sys.stderr)
             with open(out_path, "w", encoding="utf-8") as handle:
                 handle.write(listing)
 
