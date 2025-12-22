@@ -133,6 +133,14 @@ INTERESTING_PATH_KEYWORDS = {
     "/home/",
     "/users/",
 }
+SYSVOL_GPP_FILENAMES = {
+    "groups.xml",
+    "services.xml",
+    "scheduledtasks.xml",
+    "datasources.xml",
+    "printers.xml",
+    "drives.xml",
+}
 IGNORED_CONFIG_FILENAMES = {
     "aspnet.config",
     "caspol.exe.config",
@@ -272,6 +280,8 @@ def is_interesting(path, case_insensitive, ignore_set, keyword_patterns):
     if base_lower in IGNORED_CONFIG_FILENAMES:
         return False
     base = os.path.basename(compare_path)
+    if "/sysvol/" in compare_path.lower() and base_lower in SYSVOL_GPP_FILENAMES:
+        return True
     if (base in INTERESTING_FILENAMES and base not in ignore_set) or (
         base.startswith(".env.") and base not in ignore_set
     ):
@@ -385,6 +395,10 @@ def main(argv):
                     ignore_set,
                     keyword_patterns,
                 )
+                if "/sysvol/" in path.lower():
+                    base_lower = os.path.basename(path).lower()
+                    if base_lower in SYSVOL_GPP_FILENAMES:
+                        filename_matches.append(base_lower)
                 path_matches = find_path_matches(path, args.case_insensitive, ignore_set)
                 all_matches = filename_matches + path_matches
                 highlighted = highlight_filename(filename, filename_matches, args.case_insensitive)
