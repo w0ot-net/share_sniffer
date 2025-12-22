@@ -33,8 +33,20 @@ def build_smbclient_parser():
         add_help=True,
         description="SMB client implementation.",
     )
-    parser.add_argument("-file", type=argparse.FileType("r"), help="input file with commands to execute in the mini shell")
+    parser.add_argument(
+        "-inputfile",
+        action="store",
+        metavar="INPUTFILE",
+        help="input file with commands to execute in the mini shell",
+    )
+    parser.add_argument(
+        "-outputfile",
+        action="store",
+        metavar="OUTPUTFILE",
+        help="output file to write the command results",
+    )
     parser.add_argument("-debug", action="store_true", help="Turn DEBUG output ON")
+    parser.add_argument("-ts", action="store_true", help="Adds timestamp to every logging output")
 
     group = parser.add_argument_group("authentication")
     group.add_argument(
@@ -253,7 +265,7 @@ def run_smbclient(smbclient_path, smbclient_args, target, command, debug):
             handle.write(command)
             handle.write("\n")
             temp_path = handle.name
-        cmd = [smbclient_path] + smbclient_args + ["-file", temp_path, target]
+        cmd = [smbclient_path] + smbclient_args + ["-inputfile", temp_path, target]
         result = subprocess.run(cmd, capture_output=True, text=True)
     finally:
         if temp_path:
@@ -306,9 +318,8 @@ def main(argv):
         print_wrapper_help()
         return 1
 
-    if parsed.file is not None:
-        parsed.file.close()
-        print("error: do not pass -file; the wrapper manages commands", file=sys.stderr)
+    if parsed.inputfile is not None:
+        print("error: do not pass -inputfile; the wrapper manages commands", file=sys.stderr)
         return 1
 
     if unknown:
