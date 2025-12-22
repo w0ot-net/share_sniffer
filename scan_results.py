@@ -72,25 +72,6 @@ INTERESTING_XML_FILENAMES = {
     "applicationhost.config",
     "webservices.config",
 }
-INTERESTING_INI_FILENAMES = {
-    "config.ini",
-    "settings.ini",
-    "secrets.ini",
-    "credentials.ini",
-    "creds.ini",
-    "passwords.ini",
-    "db.ini",
-}
-INTERESTING_JSON_FILENAMES = {
-    "credentials.json",
-    "creds.json",
-    "secrets.json",
-    "secret.json",
-    "config.json",
-    "settings.json",
-    "appsettings.json",
-    "appsettings.development.json",
-}
 INTERESTING_FILENAMES = {
     ".env",
     ".env.local",
@@ -119,6 +100,23 @@ INTERESTING_FILENAMES = {
     "id_ed25519.ppk",
     "known_hosts",
     "rdp.rdp",
+    "credentials.json",
+    "creds.json",
+    "secrets.json",
+    "secret.json",
+    "config.json",
+    "settings.json",
+    "appsettings.json",
+    "appsettings.development.json",
+}
+INTERESTING_INI_FILENAMES = {
+    "config.ini",
+    "settings.ini",
+    "secrets.ini",
+    "credentials.ini",
+    "creds.ini",
+    "passwords.ini",
+    "db.ini",
 }
 INTERESTING_PATH_KEYWORDS = {
     "/config/",
@@ -225,9 +223,6 @@ def find_filename_matches(filename, case_insensitive, ignore_set, keyword_patter
     if ext == ".ini":
         if base in INTERESTING_INI_FILENAMES:
             matches.append(base)
-    if ext == ".json":
-        if base in INTERESTING_JSON_FILENAMES:
-            matches.append(base)
     return matches
 
 
@@ -248,7 +243,6 @@ def is_exact_filename_match(base, ignore_set):
         or (base.startswith(".env.") and base not in ignore_set)
         or (base in INTERESTING_XML_FILENAMES and base not in ignore_set)
         or (base in INTERESTING_INI_FILENAMES and base not in ignore_set)
-        or (base in INTERESTING_JSON_FILENAMES and base not in ignore_set)
     )
 
 
@@ -282,20 +276,6 @@ def is_interesting(path, case_insensitive, ignore_set, keyword_patterns):
     _, ext = os.path.splitext(compare_path)
     if ext == ".ini":
         if base in INTERESTING_INI_FILENAMES and base not in ignore_set:
-            return True
-        for keyword in INTERESTING_NAME_KEYWORDS:
-            if keyword in ignore_set:
-                continue
-            if keyword in base:
-                return True
-        for keyword, pattern in keyword_patterns.items():
-            if keyword in ignore_set:
-                continue
-            if pattern.search(base):
-                return True
-        return False
-    if ext == ".json":
-        if base in INTERESTING_JSON_FILENAMES and base not in ignore_set:
             return True
         for keyword in INTERESTING_NAME_KEYWORDS:
             if keyword in ignore_set:
