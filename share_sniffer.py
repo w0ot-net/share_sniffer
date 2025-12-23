@@ -5,6 +5,7 @@ import re
 import sys
 
 from smbclient_utils import build_smbclient_parser, detect_input_flag, ensure_smbclient_on_path, run_smbclient
+from wrapper_utils import build_target, expand_list_items, require_no_inline_creds, split_args
 
 
 def print_wrapper_help():
@@ -17,105 +18,6 @@ def print_wrapper_help():
     print("  -o, --output <dir>             output directory (default: ./results_<timestamp>)")
     print()
     print("note: smbclient.py has its own -debug flag for protocol logging.")
-
-
-def split_args(argv):
-    targets = []
-    passthrough = []
-    default_output = f"./results_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    wrapper = {
-        "username": None,
-        "domain": None,
-        "password": None,
-        "verbose": False,
-        "output": default_output,
-    }
-    idx = 0
-    while idx < len(argv):
-        arg = argv[idx]
-        if arg == "--targets":
-            if idx + 1 >= len(argv):
-                return None, None, None, "error: --targets requires a value"
-            targets.append(argv[idx + 1])
-            idx += 2
-            continue
-        if arg.startswith("--targets="):
-            targets.append(arg.split("=", 1)[1])
-            idx += 1
-            continue
-        if arg in ("--username", "--user"):
-            if idx + 1 >= len(argv):
-                return None, None, None, f"error: {arg} requires a value"
-            wrapper["username"] = argv[idx + 1]
-            idx += 2
-            continue
-        if arg.startswith("--username="):
-            wrapper["username"] = arg.split("=", 1)[1]
-            idx += 1
-            continue
-        if arg.startswith("--user="):
-            wrapper["username"] = arg.split("=", 1)[1]
-            idx += 1
-            continue
-        if arg == "--domain":
-            if idx + 1 >= len(argv):
-                return None, None, None, "error: --domain requires a value"
-            wrapper["domain"] = argv[idx + 1]
-            idx += 2
-            continue
-        if arg.startswith("--domain="):
-            wrapper["domain"] = arg.split("=", 1)[1]
-            idx += 1
-            continue
-        if arg == "--password":
-            if idx + 1 >= len(argv):
-                return None, None, None, "error: --password requires a value"
-            wrapper["password"] = argv[idx + 1]
-            idx += 2
-            continue
-        if arg.startswith("--password="):
-            wrapper["password"] = arg.split("=", 1)[1]
-            idx += 1
-            continue
-        if arg == "--verbose":
-            wrapper["verbose"] = True
-            idx += 1
-            continue
-        if arg in ("-o", "--output"):
-            if idx + 1 >= len(argv):
-                return None, None, None, f"error: {arg} requires a value"
-            wrapper["output"] = argv[idx + 1]
-            idx += 2
-            continue
-        if arg.startswith("--output="):
-            wrapper["output"] = arg.split("=", 1)[1]
-            idx += 1
-            continue
-        passthrough.append(arg)
-        idx += 1
-    return targets, wrapper, passthrough, None
-
-
-def expand_targets(raw_targets):
-    targets = []
-    for raw in raw_targets:
-        if os.path.isfile(raw):
-            with open(raw, "r", encoding="utf-8") as handle:
-                for line in handle:
-                    line = line.strip()
-                    if not line or line.startswith("#"):
-                        continue
-                    targets.append(line)
-            continue
-        targets.append(raw)
-
-    seen = set()
-    deduped = []
-    for target in targets:
-        if target not in seen:
-            seen.add(target)
-            deduped.append(target)
-    return deduped
 
 
 def sanitize_target(target):
@@ -133,25 +35,6 @@ def target_for_folder(target):
     if not userpart:
         return host
     return f"{userpart}@{host}"
-
-
-def build_target(target, username, domain, password):
-    if "@" in target:
-        return target
-
-    if domain or password:
-        if not username:
-            raise ValueError("error: --domain/--password require --username")
-
-    if not username:
-        return target
-
-    userpart = username
-    if domain:
-        userpart = f"{domain}/{username}"
-    if password is not None:
-        userpart = f"{userpart}:{password}"
-    return f"{userpart}@{target}"
 
 
 def is_share_readable(output, returncode):
@@ -198,7 +81,8 @@ def parse_shares(output):
 
 
 def main(argv):
-    targets_raw, wrapper, smbclient_args, err = split_args(argv)
+    default_output = f"./results_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    targets_raw, wrapper, smbclient_args, err = split_args(argv, "targets", default_output)
     if err:
         print(err, file=sys.stderr)
         print_wrapper_help()
@@ -237,19 +121,17 @@ def main(argv):
 
     smbclient_cmd = ensure_smbclient_on_path()
     input_flag = detect_input_flag(smbclient_cmd)
-    targets = expand_targets(targets_raw)
+    targets = expand_list_items(targets_raw)
     if not targets:
         print("error: no targets provided", file=sys.stderr)
         return 1
 
     if wrapper["username"] or wrapper["domain"] or wrapper["password"] is not None:
-        for target in targets:
-            if "@" in target:
-                print(
-                    "error: do not mix --username/--domain/--password with targets that already include credentials",
-                    file=sys.stderr,
-                )
-                return 1
+        if not require_no_inline_creds(
+            targets,
+            "error: do not mix --username/--domain/--password with targets that already include credentials",
+        ):
+            return 1
         try:
             targets = [
                 build_target(target, wrapper["username"], wrapper["domain"], wrapper["password"])
