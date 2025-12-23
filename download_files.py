@@ -24,7 +24,7 @@ def print_wrapper_help():
     print("  --domain <name>                optional domain to apply to all targets")
     print("  --password <value>             optional password to apply to all targets")
     print("  --verbose                      print smbclient output and wrapper commands")
-    print("  -o, --output <dir>             output directory (default: ./downloads_<timestamp>)")
+    print("  -o, --output <dir>             output directory (default: ./downloads)")
     print()
     print("note: smbclient.py has its own -debug flag for protocol logging.")
 
@@ -112,7 +112,7 @@ def build_smbclient_parser():
 def split_args(argv):
     paths = []
     passthrough = []
-    default_output = f"./downloads_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    default_output = "./downloads"
     wrapper = {
         "username": None,
         "domain": None,
