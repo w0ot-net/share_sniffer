@@ -311,6 +311,10 @@ def run_smbclient(smbclient_path, smbclient_args, target, commands, verbose, inp
     return result.returncode, output
 
 
+def sanitize_filename(name):
+    return re.sub(r"[^A-Za-z0-9._-]", "_", name)
+
+
 def unique_local_path(output_root, filename, used_paths):
     base, ext = os.path.splitext(filename)
     candidate = os.path.join(output_root, filename)
@@ -410,8 +414,8 @@ def main(argv):
         for remote in sorted(set(remotes)):
             remote = remote.lstrip("/")
             remote_dir = os.path.dirname(remote).replace("\\", "/")
-            filename = os.path.basename(remote)
-            local_path = unique_local_path(output_root, filename, used_paths)
+            encoded = sanitize_filename(remote.replace("\\", "/").replace("/", "_")).lstrip("_")
+            local_path = unique_local_path(output_root, encoded, used_paths)
             abs_local = os.path.abspath(local_path)
             remote_to_local[remote] = abs_local
             if remote_dir != current_remote_dir:
