@@ -387,16 +387,28 @@ def main(argv):
             print(str(exc), file=sys.stderr)
             return 1
 
-        commands = [f"use {share}"]
+        downloads_dir = os.path.abspath(output_root)
+        commands = [f"lcd {downloads_dir}", f"use {share}"]
         remote_to_local = {}
+        current_remote_dir = None
         for remote in sorted(set(remotes)):
+            remote = remote.lstrip("/")
+            remote_dir = os.path.dirname(remote).replace("\\", "/")
             filename = os.path.basename(remote)
             local_path = os.path.join(output_root, filename)
             abs_local = os.path.abspath(local_path)
             remote_to_local[remote] = abs_local
-            commands.append(f'get "{remote}" "{abs_local}"')
+            if remote_dir != current_remote_dir:
+                if remote_dir:
+                    commands.append(f"cd /{remote_dir}")
+                else:
+                    commands.append("cd /")
+                current_remote_dir = remote_dir
+            commands.append(f"get {filename}")
 
         command_text = "\n".join(commands)
+        for remote in sorted(set(remotes)):
+            print(f"downloading: //{host}/{share}/{remote.lstrip('/')}")
         code, output = run_smbclient(
             smbclient_path,
             smbclient_args,
