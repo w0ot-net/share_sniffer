@@ -398,6 +398,7 @@ def main(argv):
         for remote in sorted(set(remotes)):
             remote = remote.lstrip("/")
             remote_dir = os.path.dirname(remote).replace("\\", "/")
+            filename = os.path.basename(remote)
             encoded_remote = remote.replace("\\", "/").replace("/", "_")
             encoded = sanitize_filename(f"{host}_{share}_{encoded_remote}").lstrip("_")
             local_path = os.path.join(output_root, encoded)
