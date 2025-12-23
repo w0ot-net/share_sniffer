@@ -22,7 +22,7 @@ outputs a directory per target, then per share, with a `files.txt` recursive lis
 
 ## download files
 ```
-./download_files.py --paths //host/share/path/file.txt <smbclient.py args>
-./download_files.py --paths unc_list.txt <smbclient.py args>
-./download_files.py --paths unc_list.txt -o ./downloads <smbclient.py args>
+./downloader.py --paths //host/share/path/file.txt <smbclient.py args>
+./downloader.py --paths unc_list.txt <smbclient.py args>
+./downloader.py --paths unc_list.txt -o ./downloads <smbclient.py args>
 ```

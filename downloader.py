@@ -388,11 +388,12 @@ def main(argv):
             return 1
 
         commands = [f"use {share}"]
+        remote_to_local = {}
         for remote in sorted(set(remotes)):
-            local_path = os.path.join(output_root, host, share, remote)
-            local_dir = os.path.dirname(local_path)
-            os.makedirs(local_dir, exist_ok=True)
+            filename = os.path.basename(remote)
+            local_path = os.path.join(output_root, filename)
             abs_local = os.path.abspath(local_path)
+            remote_to_local[remote] = abs_local
             commands.append(f'get "{remote}" "{abs_local}"')
 
         command_text = "\n".join(commands)
@@ -404,13 +405,18 @@ def main(argv):
             wrapper["verbose"],
             input_flag,
         )
-        if code != 0:
-            print(f"[!] {host}/{share}: download failed", file=sys.stderr)
-            if wrapper["verbose"] and output:
-                print(output, file=sys.stderr)
-            continue
-        if wrapper["verbose"] and output:
-            print(output)
+        output_lower = output.lower()
+        for remote, local_path in remote_to_local.items():
+            exists = os.path.isfile(local_path)
+            if exists:
+                status = "ok"
+            elif "error" in output_lower or "sessionerror" in output_lower:
+                status = "failed"
+            else:
+                status = "unknown"
+            print(f"{status}: //{host}/{share}/{remote} -> {local_path}")
+        if code != 0 and wrapper["verbose"] and output:
+            print(output, file=sys.stderr)
 
     return 0
 
