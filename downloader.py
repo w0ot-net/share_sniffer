@@ -392,6 +392,9 @@ def main(argv):
             return 1
 
         downloads_dir = os.path.abspath(output_root)
+        def shell_quote(value):
+            return "'" + value.replace("'", "'\"'\"'") + "'"
+
         for remote in sorted(set(remotes)):
             remote = remote.lstrip("/")
             remote_dir = os.path.dirname(remote).replace("\\", "/")
@@ -401,13 +404,15 @@ def main(argv):
             local_path = os.path.join(output_root, encoded)
             abs_local = os.path.abspath(local_path)
 
-            temp_dir = tempfile.mkdtemp(prefix="download_", dir=downloads_dir)
-            commands = [f"lcd {temp_dir}", f"use {share}"]
+            commands = [f"lcd {downloads_dir}", f"use {share}"]
             if remote_dir:
                 commands.append(f"cd /{remote_dir}")
             else:
                 commands.append("cd /")
             commands.append(f"get {filename}")
+            commands.append(
+                f"shell mv -f {shell_quote(filename)} {shell_quote(abs_local)}"
+            )
 
             command_text = "\n".join(commands)
             print(f"downloading: //{host}/{share}/{remote}")
@@ -420,9 +425,7 @@ def main(argv):
                 input_flag,
             )
             output_lower = output.lower()
-            downloaded_path = os.path.join(temp_dir, filename)
-            if os.path.isfile(downloaded_path):
-                os.replace(downloaded_path, abs_local)
+            if os.path.isfile(abs_local):
                 status = "ok"
             elif "error" in output_lower or "sessionerror" in output_lower:
                 status = "failed"
@@ -431,10 +434,6 @@ def main(argv):
             print(f"{status}: //{host}/{share}/{remote} -> {abs_local}")
             if wrapper["verbose"] and output:
                 print(output, file=sys.stderr if code != 0 else sys.stdout)
-            try:
-                os.rmdir(temp_dir)
-            except OSError:
-                pass
 
     return 0
 
