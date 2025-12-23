@@ -415,8 +415,8 @@ def main(argv):
             else:
                 status = "unknown"
             print(f"{status}: //{host}/{share}/{remote} -> {local_path}")
-        if code != 0 and wrapper["verbose"] and output:
-            print(output, file=sys.stderr)
+        if wrapper["verbose"] and output:
+            print(output, file=sys.stderr if code != 0 else sys.stdout)
 
     return 0
 
