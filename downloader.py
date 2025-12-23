@@ -211,7 +211,7 @@ def expand_paths(raw_paths):
 def ensure_smbclient_on_path():
     path = shutil.which("smbclient.py")
     if path:
-        return path
+        return [path]
 
     candidates = [p for p in COMMON_SMBCLIENT_PATHS if os.path.isfile(p)]
     if not candidates:
@@ -237,14 +237,16 @@ def ensure_smbclient_on_path():
 
     os.environ["PATH"] = f"{os.path.dirname(candidate)}{os.pathsep}{os.environ.get('PATH', '')}"
     path = shutil.which("smbclient.py")
-    if not path:
+    if path:
+        return [path]
+    if not os.access(candidate, os.R_OK):
         print("error: failed to add smbclient.py to PATH.", file=sys.stderr)
         sys.exit(1)
-    return path
+    return [sys.executable, candidate]
 
 
-def detect_input_flag(smbclient_path):
-    result = subprocess.run([smbclient_path, "-h"], capture_output=True, text=True)
+def detect_input_flag(smbclient_cmd):
+    result = subprocess.run(smbclient_cmd + ["-h"], capture_output=True, text=True)
     combined = (result.stdout or "") + (result.stderr or "")
     if "-inputfile" in combined:
         return "-inputfile"
@@ -286,14 +288,14 @@ def parse_unc(unc):
     return host, share, remote
 
 
-def run_smbclient(smbclient_path, smbclient_args, target, commands, verbose, input_flag):
+def run_smbclient(smbclient_cmd, smbclient_args, target, commands, verbose, input_flag):
     temp_path = None
     try:
         with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as handle:
             handle.write(commands)
             handle.write("\n")
             temp_path = handle.name
-        cmd = [smbclient_path] + smbclient_args + [input_flag, temp_path, target]
+        cmd = smbclient_cmd + smbclient_args + [input_flag, temp_path, target]
         result = subprocess.run(cmd, capture_output=True, text=True)
     finally:
         if temp_path:
@@ -351,8 +353,8 @@ def main(argv):
         print_wrapper_help()
         return 1
 
-    smbclient_path = ensure_smbclient_on_path()
-    input_flag = detect_input_flag(smbclient_path)
+    smbclient_cmd = ensure_smbclient_on_path()
+    input_flag = detect_input_flag(smbclient_cmd)
 
     paths = expand_paths(paths_raw)
     if not paths:
@@ -417,7 +419,7 @@ def main(argv):
             command_text = "\n".join(commands)
             print(f"downloading: //{host}/{share}/{remote}")
             code, output = run_smbclient(
-                smbclient_path,
+                smbclient_cmd,
                 smbclient_args,
                 target,
                 command_text,
