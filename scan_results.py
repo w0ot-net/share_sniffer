@@ -202,6 +202,10 @@ def find_latest_results_dir():
 def extract_host(target_folder):
     if "@" in target_folder:
         return target_folder.split("@", 1)[1]
+    if "_" in target_folder:
+        suffix = target_folder.rsplit("_", 1)[1]
+        if any(ch.isdigit() for ch in suffix) or "." in suffix:
+            return suffix
     return target_folder
 
 

@@ -244,7 +244,7 @@ def ensure_smbclient_on_path():
 
 
 def sanitize_target(target):
-    return re.sub(r"[^A-Za-z0-9._-]", "_", target)
+    return re.sub(r"[^A-Za-z0-9._@-]", "_", target)
 
 
 def target_for_folder(target):
