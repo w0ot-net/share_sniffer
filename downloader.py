@@ -311,6 +311,21 @@ def run_smbclient(smbclient_path, smbclient_args, target, commands, verbose, inp
     return result.returncode, output
 
 
+def unique_local_path(output_root, filename, used_paths):
+    base, ext = os.path.splitext(filename)
+    candidate = os.path.join(output_root, filename)
+    if candidate not in used_paths and not os.path.exists(candidate):
+        used_paths.add(candidate)
+        return candidate
+    counter = 1
+    while True:
+        candidate = os.path.join(output_root, f"{base}_{counter}{ext}")
+        if candidate not in used_paths and not os.path.exists(candidate):
+            used_paths.add(candidate)
+            return candidate
+        counter += 1
+
+
 def main(argv):
     paths_raw, wrapper, smbclient_args, err = split_args(argv)
     if err:
@@ -380,6 +395,7 @@ def main(argv):
     for host, share, remote in entries:
         grouped.setdefault((host, share), []).append(remote)
 
+    used_paths = set()
     for (host, share), remotes in grouped.items():
         try:
             target = build_target(host, wrapper["username"], wrapper["domain"], wrapper["password"])
@@ -395,7 +411,7 @@ def main(argv):
             remote = remote.lstrip("/")
             remote_dir = os.path.dirname(remote).replace("\\", "/")
             filename = os.path.basename(remote)
-            local_path = os.path.join(output_root, filename)
+            local_path = unique_local_path(output_root, filename, used_paths)
             abs_local = os.path.abspath(local_path)
             remote_to_local[remote] = abs_local
             if remote_dir != current_remote_dir:
