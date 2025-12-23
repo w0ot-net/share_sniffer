@@ -392,9 +392,6 @@ def main(argv):
             return 1
 
         downloads_dir = os.path.abspath(output_root)
-        commands = [f"lcd {downloads_dir}", f"use {share}"]
-        remote_to_local = {}
-        current_remote_dir = None
         for remote in sorted(set(remotes)):
             remote = remote.lstrip("/")
             remote_dir = os.path.dirname(remote).replace("\\", "/")
@@ -403,38 +400,41 @@ def main(argv):
             encoded = sanitize_filename(f"{host}_{share}_{encoded_remote}").lstrip("_")
             local_path = os.path.join(output_root, encoded)
             abs_local = os.path.abspath(local_path)
-            remote_to_local[remote] = abs_local
-            if remote_dir != current_remote_dir:
-                if remote_dir:
-                    commands.append(f"cd /{remote_dir}")
-                else:
-                    commands.append("cd /")
-                current_remote_dir = remote_dir
+
+            temp_dir = tempfile.mkdtemp(prefix="download_", dir=downloads_dir)
+            commands = [f"lcd {temp_dir}", f"use {share}"]
+            if remote_dir:
+                commands.append(f"cd /{remote_dir}")
+            else:
+                commands.append("cd /")
             commands.append(f"get {filename}")
 
-        command_text = "\n".join(commands)
-        for remote in sorted(set(remotes)):
-            print(f"downloading: //{host}/{share}/{remote.lstrip('/')}")
-        code, output = run_smbclient(
-            smbclient_path,
-            smbclient_args,
-            target,
-            command_text,
-            wrapper["verbose"],
-            input_flag,
-        )
-        output_lower = output.lower()
-        for remote, local_path in remote_to_local.items():
-            exists = os.path.isfile(local_path)
-            if exists:
+            command_text = "\n".join(commands)
+            print(f"downloading: //{host}/{share}/{remote}")
+            code, output = run_smbclient(
+                smbclient_path,
+                smbclient_args,
+                target,
+                command_text,
+                wrapper["verbose"],
+                input_flag,
+            )
+            output_lower = output.lower()
+            downloaded_path = os.path.join(temp_dir, filename)
+            if os.path.isfile(downloaded_path):
+                os.replace(downloaded_path, abs_local)
                 status = "ok"
             elif "error" in output_lower or "sessionerror" in output_lower:
                 status = "failed"
             else:
                 status = "unknown"
-            print(f"{status}: //{host}/{share}/{remote} -> {local_path}")
-        if wrapper["verbose"] and output:
-            print(output, file=sys.stderr if code != 0 else sys.stdout)
+            print(f"{status}: //{host}/{share}/{remote} -> {abs_local}")
+            if wrapper["verbose"] and output:
+                print(output, file=sys.stderr if code != 0 else sys.stdout)
+            try:
+                os.rmdir(temp_dir)
+            except OSError:
+                pass
 
     return 0
 
