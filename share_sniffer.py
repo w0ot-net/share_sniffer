@@ -150,18 +150,15 @@ def normalize_share_name(raw):
     return raw.rstrip("\x00")
 
 
-def can_list_share(conn, share):
-    conn.listPath(share, "\\*")
-
-
-def write_tree(conn, share, handle, verbose):
-    def walk(win_path, display_path):
-        try:
-            entries = conn.listPath(share, f"{win_path}*")
-        except SessionError as exc:
-            if verbose:
-                print(f"[!] {share}: {exc}", file=sys.stderr)
-            return
+def write_tree(conn, share, handle, verbose, initial_entries=None):
+    def walk(win_path, display_path, entries=None):
+        if entries is None:
+            try:
+                entries = conn.listPath(share, f"{win_path}*")
+            except SessionError as exc:
+                if verbose:
+                    print(f"[!] {share}: {exc}", file=sys.stderr)
+                return
         for entry in entries:
             name = entry.get_longname()
             if name in (".", ".."):
@@ -173,7 +170,7 @@ def write_tree(conn, share, handle, verbose):
             else:
                 handle.write(display + "\n")
 
-    walk("\\", "")
+    walk("\\", "", initial_entries)
 
 
 def connect_smb(host, username, password, domain, lmhash, nthash, args, target_ip):
@@ -331,7 +328,7 @@ def main(argv):
 
             try:
                 try:
-                    can_list_share(share_conn, share_name)
+                    initial_entries = share_conn.listPath(share_name, "\\*")
                 except SessionError as exc:
                     if args.verbose:
                         print(f"[!] {host}: {share_name} not readable: {exc}", file=sys.stderr)
@@ -342,7 +339,7 @@ def main(argv):
                 out_path = os.path.join(share_dir, "files.txt")
                 print(f"[+] {host}: {share_name} -> {out_path}")
                 with open(out_path, "w", encoding="utf-8") as handle:
-                    write_tree(share_conn, share_name, handle, args.verbose)
+                    write_tree(share_conn, share_name, handle, args.verbose, initial_entries)
             finally:
                 share_conn.logoff()
 
