@@ -86,7 +86,13 @@ def parse_args(argv):
         "--threads",
         type=int,
         default=1,
-        help="Number of target workers (default: 1).",
+        help="Max simultaneous targets (default: 1).",
+    )
+    parser.add_argument(
+        "--share-threads",
+        type=int,
+        default=1,
+        help="Max simultaneous shares per target (default: 1).",
     )
     return parser.parse_args(argv)
 
@@ -228,6 +234,9 @@ def main(argv):
     if args.threads < 1:
         print("error: --threads must be >= 1", file=sys.stderr)
         return 1
+    if args.share_threads < 1:
+        print("error: --share-threads must be >= 1", file=sys.stderr)
+        return 1
 
     if args.target_ip and len(parsed_targets) > 1:
         print("error: --target-ip only supports a single target", file=sys.stderr)
@@ -299,20 +308,54 @@ def main(argv):
             conn.logoff()
             return
 
-        for share in shares:
-            try:
-                can_list_share(conn, share)
-            except SessionError as exc:
-                if args.verbose:
-                    print(f"[!] {host}: {share} not readable: {exc}", file=sys.stderr)
-                continue
+        conn.logoff()
 
-            share_dir = os.path.join(target_dir, share)
-            os.makedirs(share_dir, exist_ok=True)
-            out_path = os.path.join(share_dir, "files.txt")
-            print(f"[+] {host}: {share} -> {out_path}")
-            with open(out_path, "w", encoding="utf-8") as handle:
-                write_tree(conn, share, handle, args.verbose)
+        def process_share(share_name):
+            try:
+                share_conn = connect_smb(
+                    host,
+                    username,
+                    password,
+                    domain,
+                    lmhash,
+                    nthash,
+                    args,
+                    args.target_ip,
+                )
+            except SessionError as exc:
+                print(f"[!] {host}: authentication failed: {exc}", file=sys.stderr)
+                return
+            except Exception as exc:
+                print(f"[!] {host}: connection failed: {exc}", file=sys.stderr)
+                return
+
+            try:
+                try:
+                    can_list_share(share_conn, share_name)
+                except SessionError as exc:
+                    if args.verbose:
+                        print(f"[!] {host}: {share_name} not readable: {exc}", file=sys.stderr)
+                    return
+
+                share_dir = os.path.join(target_dir, share_name)
+                os.makedirs(share_dir, exist_ok=True)
+                out_path = os.path.join(share_dir, "files.txt")
+                print(f"[+] {host}: {share_name} -> {out_path}")
+                with open(out_path, "w", encoding="utf-8") as handle:
+                    write_tree(share_conn, share_name, handle, args.verbose)
+            finally:
+                share_conn.logoff()
+
+        if args.share_threads == 1:
+            for share in shares:
+                process_share(share)
+        else:
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=args.share_threads) as executor:
+                futures = [executor.submit(process_share, share) for share in shares]
+                for future in futures:
+                    future.result()
 
         conn.logoff()
 
