@@ -18,6 +18,15 @@ outputs a directory per target, then per share, with a `files.txt` recursive lis
 ./results_<timestamp>/<target>/<share>/files.txt
 ```
 
+auth flags (shared by share_sniffer.py and downloader.py):
+```
+--username USER --domain DOMAIN --password PASS
+--hashes LMHASH:NTHASH
+--no-pass
+-k/--kerberos --aes-key HEX --dc-ip IP
+--target-ip IP --port 445 --timeout 10
+```
+
 ## scan results
 ```
 ./analyze.py
