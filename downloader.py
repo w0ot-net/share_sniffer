@@ -221,9 +221,9 @@ def main(argv):
     grouped = {}
     for host, share, remote, username, password, domain in entries:
         key = (host, username, password, domain)
-        grouped.setdefault(key, []).append((share, remote))
+        grouped.setdefault(key, {}).setdefault(share, []).append(remote)
 
-    for (host, inline_user, inline_pass, inline_domain), items in grouped.items():
+    for (host, inline_user, inline_pass, inline_domain), shares in grouped.items():
         username = inline_user or args.username or ""
         domain = inline_domain or args.domain or ""
         try:
@@ -250,42 +250,43 @@ def main(argv):
             print(f"[!] {host}: connection failed: {exc}", file=sys.stderr)
             continue
 
-        for share, remote in items:
-            remote = remote.lstrip("/")
-            encoded_remote = remote.replace("\\", "/").replace("/", "_")
-            encoded = sanitize_filename(f"{host}_{share}_{encoded_remote}").lstrip("_")
-            local_path = os.path.join(args.output, encoded)
-            abs_local = os.path.abspath(local_path)
-            tmp_path = abs_local + ".part"
+        for share in sorted(shares):
+            for remote in shares[share]:
+                remote = remote.lstrip("/")
+                encoded_remote = remote.replace("\\", "/").replace("/", "_")
+                encoded = sanitize_filename(f"{host}_{share}_{encoded_remote}").lstrip("_")
+                local_path = os.path.join(args.output, encoded)
+                abs_local = os.path.abspath(local_path)
+                tmp_path = abs_local + ".part"
 
-            remote_win = "\\" + remote.replace("/", "\\").lstrip("\\")
-            print(f"downloading: //{host}/{share}/{remote}")
+                remote_win = "\\" + remote.replace("/", "\\").lstrip("\\")
+                print(f"downloading: //{host}/{share}/{remote}")
 
-            try:
-                with open(tmp_path, "wb") as handle:
-                    conn.getFile(share, remote_win, handle.write)
-                os.replace(tmp_path, abs_local)
-                status = "ok"
-            except SessionError as exc:
-                status = "failed"
-                if args.verbose:
-                    print(f"[!] {host}: {exc}", file=sys.stderr)
                 try:
-                    if os.path.exists(tmp_path):
-                        os.unlink(tmp_path)
-                except OSError:
-                    pass
-            except Exception as exc:
-                status = "failed"
-                if args.verbose:
-                    print(f"[!] {host}: {exc}", file=sys.stderr)
-                try:
-                    if os.path.exists(tmp_path):
-                        os.unlink(tmp_path)
-                except OSError:
-                    pass
+                    with open(tmp_path, "wb") as handle:
+                        conn.getFile(share, remote_win, handle.write)
+                    os.replace(tmp_path, abs_local)
+                    status = "ok"
+                except SessionError as exc:
+                    status = "failed"
+                    if args.verbose:
+                        print(f"[!] {host}: {exc}", file=sys.stderr)
+                    try:
+                        if os.path.exists(tmp_path):
+                            os.unlink(tmp_path)
+                    except OSError:
+                        pass
+                except Exception as exc:
+                    status = "failed"
+                    if args.verbose:
+                        print(f"[!] {host}: {exc}", file=sys.stderr)
+                    try:
+                        if os.path.exists(tmp_path):
+                            os.unlink(tmp_path)
+                    except OSError:
+                        pass
 
-            print(f"{status}: //{host}/{share}/{remote} -> {abs_local}")
+                print(f"{status}: //{host}/{share}/{remote} -> {abs_local}")
 
         conn.logoff()
 

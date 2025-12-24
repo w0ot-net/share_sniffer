@@ -83,7 +83,9 @@ def parse_args(argv):
     )
     parser.add_argument(
         "-t",
+        "--target-threds",
         "--threads",
+        dest="threads",
         type=int,
         default=1,
         help="Max simultaneous targets (default: 1).",
@@ -93,6 +95,12 @@ def parse_args(argv):
         type=int,
         default=1,
         help="Max simultaneous shares per target (default: 1).",
+    )
+    parser.add_argument(
+        "--dir-threads",
+        type=int,
+        default=1,
+        help="Max simultaneous directory listings per share (default: 1).",
     )
     return parser.parse_args(argv)
 
@@ -233,6 +241,9 @@ def main(argv):
         return 1
     if args.share_threads < 1:
         print("error: --share-threads must be >= 1", file=sys.stderr)
+        return 1
+    if args.dir_threads < 1:
+        print("error: --dir-threads must be >= 1", file=sys.stderr)
         return 1
 
     if args.target_ip and len(parsed_targets) > 1:
