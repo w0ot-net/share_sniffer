@@ -412,6 +412,7 @@ def main(argv):
 
         def process_share(share_name, share_conn=None):
             owns_connection = share_conn is None
+            closed_connection = False
             if owns_connection:
                 try:
                     share_conn = make_connection()
@@ -429,6 +430,9 @@ def main(argv):
                     if args.verbose:
                         print(f"[!] {host}: {share_name} not readable: {exc}", file=sys.stderr)
                     return
+                if args.dir_threads > 1 and owns_connection:
+                    share_conn.logoff()
+                    closed_connection = True
 
                 share_dir = os.path.join(target_dir, share_name)
                 os.makedirs(share_dir, exist_ok=True)
@@ -442,7 +446,7 @@ def main(argv):
                         dir_threads=args.dir_threads, connect_func=connect_func
                     )
             finally:
-                if owns_connection:
+                if owns_connection and not closed_connection:
                     share_conn.logoff()
 
         if args.share_threads == 1:
