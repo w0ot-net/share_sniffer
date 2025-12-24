@@ -1,83 +1,69 @@
 #!/usr/bin/env python3
+import argparse
+import getpass
 import os
 import sys
 
+from impacket.smbconnection import SMBConnection
 
-def split_args(argv, list_flag, default_output):
-    items = []
-    passthrough = []
-    wrapper = {
-        "username": None,
-        "domain": None,
-        "password": None,
-        "verbose": False,
-        "output": default_output,
-    }
-    idx = 0
-    list_opt = f"--{list_flag}"
-    while idx < len(argv):
-        arg = argv[idx]
-        if arg == list_opt:
-            if idx + 1 >= len(argv):
-                return None, None, None, f"error: {list_opt} requires a value"
-            items.append(argv[idx + 1])
-            idx += 2
-            continue
-        if arg.startswith(f"{list_opt}="):
-            items.append(arg.split("=", 1)[1])
-            idx += 1
-            continue
-        if arg in ("--username", "--user"):
-            if idx + 1 >= len(argv):
-                return None, None, None, f"error: {arg} requires a value"
-            wrapper["username"] = argv[idx + 1]
-            idx += 2
-            continue
-        if arg.startswith("--username="):
-            wrapper["username"] = arg.split("=", 1)[1]
-            idx += 1
-            continue
-        if arg.startswith("--user="):
-            wrapper["username"] = arg.split("=", 1)[1]
-            idx += 1
-            continue
-        if arg == "--domain":
-            if idx + 1 >= len(argv):
-                return None, None, None, "error: --domain requires a value"
-            wrapper["domain"] = argv[idx + 1]
-            idx += 2
-            continue
-        if arg.startswith("--domain="):
-            wrapper["domain"] = arg.split("=", 1)[1]
-            idx += 1
-            continue
-        if arg == "--password":
-            if idx + 1 >= len(argv):
-                return None, None, None, "error: --password requires a value"
-            wrapper["password"] = argv[idx + 1]
-            idx += 2
-            continue
-        if arg.startswith("--password="):
-            wrapper["password"] = arg.split("=", 1)[1]
-            idx += 1
-            continue
-        if arg == "--verbose":
-            wrapper["verbose"] = True
-            idx += 1
-            continue
-        if arg in ("-o", "--output"):
-            if idx + 1 >= len(argv):
-                return None, None, None, f"error: {arg} requires a value"
-            wrapper["output"] = argv[idx + 1]
-            idx += 2
-            continue
-        if arg.startswith("--output="):
-            wrapper["output"] = arg.split("=", 1)[1]
-            idx += 1
-            continue
-        passthrough.append(arg)
-        idx += 1
-    return items, wrapper, passthrough, None
+
+def add_auth_args(parser):
+    parser.add_argument(
+        "--username",
+        help="Username to authenticate with.",
+    )
+    parser.add_argument(
+        "--domain",
+        help="Domain to authenticate with.",
+    )
+    parser.add_argument(
+        "--password",
+        help="Password to authenticate with.",
+    )
+    parser.add_argument(
+        "--hashes",
+        help="NTLM hashes in LMHASH:NTHASH format.",
+    )
+    parser.add_argument(
+        "--no-pass",
+        action="store_true",
+        help="Do not prompt for password (use empty password).",
+    )
+    parser.add_argument(
+        "-k",
+        "--kerberos",
+        action="store_true",
+        help="Use Kerberos authentication.",
+    )
+    parser.add_argument(
+        "--aes-key",
+        help="AES key for Kerberos authentication.",
+    )
+    parser.add_argument(
+        "--dc-ip",
+        help="Domain controller IP (used with Kerberos).",
+    )
+    parser.add_argument(
+        "--target-ip",
+        help="Override target IP (single target only).",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=445,
+        help="SMB port (default: 445).",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=10,
+        help="SMB connection timeout in seconds (default: 10).",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Verbose logging.",
+    )
 
 
 def expand_list_items(raw_items):
@@ -102,28 +88,56 @@ def expand_list_items(raw_items):
     return deduped
 
 
-def build_target(host, username, domain, password):
-    if "@" in host:
-        return host
+def parse_hashes(hashes):
+    if not hashes:
+        return None, None
+    if ":" not in hashes:
+        raise ValueError("error: --hashes must be LMHASH:NTHASH")
+    lmhash, nthash = hashes.split(":", 1)
+    return lmhash, nthash
 
-    if domain or password:
-        if not username:
-            raise ValueError("error: --domain/--password require --username")
 
+def parse_target(value):
+    if "@" not in value:
+        return value, None, None, None
+    userpart, host = value.split("@", 1)
+    domain = None
+    if "/" in userpart:
+        domain, userpart = userpart.split("/", 1)
+    password = None
+    if ":" in userpart:
+        username, password = userpart.split(":", 1)
+    else:
+        username = userpart
+    username = username or None
+    return host, username, password, domain
+
+
+def resolve_password(username, provided_password, use_no_pass, hashes_present):
+    if provided_password is not None:
+        return provided_password
     if not username:
-        return host
-
-    userpart = username
-    if domain:
-        userpart = f"{domain}/{username}"
-    if password is not None:
-        userpart = f"{userpart}:{password}"
-    return f"{userpart}@{host}"
+        return ""
+    if use_no_pass or hashes_present:
+        return ""
+    if sys.stdin.isatty():
+        return getpass.getpass("Password: ")
+    raise ValueError("error: --password required (or use --no-pass)")
 
 
-def require_no_inline_creds(items, err_msg):
-    for item in items:
-        if "@" in item:
-            print(err_msg, file=sys.stderr)
-            return False
-    return True
+def connect_smb(host, username, password, domain, lmhash, nthash, args, target_ip):
+    remote_host = target_ip or host
+    conn = SMBConnection(host, remote_host, sess_port=args.port, timeout=args.timeout)
+    if args.kerberos:
+        conn.kerberosLogin(
+            username,
+            password,
+            domain,
+            lmhash=lmhash,
+            nthash=nthash,
+            aesKey=args.aes_key,
+            kdcHost=args.dc_ip,
+        )
+    else:
+        conn.login(username, password, domain, lmhash=lmhash, nthash=nthash)
+    return conn
