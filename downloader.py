@@ -7,7 +7,7 @@ import sys
 
 from impacket.smbconnection import SMBConnection, SessionError
 
-from wrapper_utils import expand_list_items
+from smb_utils import expand_list_items
 
 
 def parse_args(argv):
