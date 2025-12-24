@@ -81,6 +81,13 @@ def parse_args(argv):
         action="store_true",
         help="Verbose logging.",
     )
+    parser.add_argument(
+        "-t",
+        "--threads",
+        type=int,
+        default=1,
+        help="Number of target workers (default: 1).",
+    )
     return parser.parse_args(argv)
 
 
@@ -218,6 +225,10 @@ def main(argv):
         )
         return 1
 
+    if args.threads < 1:
+        print("error: --threads must be >= 1", file=sys.stderr)
+        return 1
+
     if args.target_ip and len(parsed_targets) > 1:
         print("error: --target-ip only supports a single target", file=sys.stderr)
         return 1
@@ -235,6 +246,7 @@ def main(argv):
     output_root = args.output or f"./results_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
     os.makedirs(output_root, exist_ok=True)
 
+    resolved_targets = []
     for host, inline_user, inline_pass, inline_domain in parsed_targets:
         username = inline_user or args.username or ""
         domain = inline_domain or args.domain or ""
@@ -253,6 +265,10 @@ def main(argv):
             print("error: --hashes requires a username", file=sys.stderr)
             return 1
 
+        resolved_targets.append((host, username, password, domain))
+
+    def process_target(entry):
+        host, username, password, domain = entry
         target_label = target_folder(host, username)
         target_dir = os.path.join(output_root, sanitize_target(target_label))
         os.makedirs(target_dir, exist_ok=True)
@@ -262,10 +278,10 @@ def main(argv):
             conn = connect_smb(host, username, password, domain, lmhash, nthash, args, args.target_ip)
         except SessionError as exc:
             print(f"[!] {host}: authentication failed: {exc}", file=sys.stderr)
-            continue
+            return
         except Exception as exc:
             print(f"[!] {host}: connection failed: {exc}", file=sys.stderr)
-            continue
+            return
 
         try:
             shares = []
@@ -276,12 +292,12 @@ def main(argv):
         except SessionError as exc:
             print(f"[!] {host}: failed to list shares: {exc}", file=sys.stderr)
             conn.logoff()
-            continue
+            return
 
         if not shares:
             print(f"[!] {host}: no shares found", file=sys.stderr)
             conn.logoff()
-            continue
+            return
 
         for share in shares:
             try:
@@ -299,6 +315,17 @@ def main(argv):
                 write_tree(conn, share, handle, args.verbose)
 
         conn.logoff()
+
+    if args.threads == 1:
+        for entry in resolved_targets:
+            process_target(entry)
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=args.threads) as executor:
+            futures = [executor.submit(process_target, entry) for entry in resolved_targets]
+            for future in futures:
+                future.result()
 
     return 0
 

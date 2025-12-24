@@ -9,6 +9,7 @@ requires the `impacket` Python package (for example `python3-impacket` or `pip i
 ./share_sniffer.py --targets 10.0.0.1
 ./share_sniffer.py --targets targets.txt --username USER --domain DOMAIN --password PASS
 ./share_sniffer.py --targets targets.txt -o ./results
+./share_sniffer.py --targets targets.txt --threads 5
 ```
 
 outputs a directory per target, then per share, with a `files.txt` recursive listing:
