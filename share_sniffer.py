@@ -83,9 +83,8 @@ def parse_args(argv):
     )
     parser.add_argument(
         "-t",
-        "--target-threds",
-        "--threads",
-        dest="threads",
+        "--target-threads",
+        dest="target_threads",
         type=int,
         default=1,
         help="Max simultaneous targets (default: 1).",
@@ -327,8 +326,8 @@ def main(argv):
         )
         return 1
 
-    if args.threads < 1:
-        print("error: --threads must be >= 1", file=sys.stderr)
+    if args.target_threads < 1:
+        print("error: --target-threads must be >= 1", file=sys.stderr)
         return 1
     if args.share_threads < 1:
         print("error: --share-threads must be >= 1", file=sys.stderr)
@@ -464,13 +463,13 @@ def main(argv):
                 for future in futures:
                     future.result()
 
-    if args.threads == 1:
+    if args.target_threads == 1:
         for entry in resolved_targets:
             process_target(entry)
     else:
         from concurrent.futures import ThreadPoolExecutor
 
-        with ThreadPoolExecutor(max_workers=args.threads) as executor:
+        with ThreadPoolExecutor(max_workers=args.target_threads) as executor:
             futures = [executor.submit(process_target, entry) for entry in resolved_targets]
             for future in futures:
                 future.result()
