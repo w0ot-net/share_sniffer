@@ -376,6 +376,7 @@ def main(argv):
     keyword_patterns = build_keyword_patterns(args.case_insensitive)
 
     results = []
+    accessed_shares = set()
     for root, _, files in os.walk(results_dir):
         if "files.txt" not in files:
             continue
@@ -386,6 +387,11 @@ def main(argv):
             continue
         target_folder, share = parts[0], parts[1]
         host = extract_host(target_folder)
+        try:
+            if os.path.getsize(files_path) > 0:
+                accessed_shares.add(f"//{host}/{share}")
+        except OSError:
+            pass
         with open(files_path, "r", encoding="utf-8", errors="replace") as handle:
             for path in parse_tree_output(handle):
                 if not is_interesting(path, args.case_insensitive, ignore_set, keyword_patterns):
@@ -425,6 +431,14 @@ def main(argv):
     def sort_key(item):
         priority, primary, unc = item
         return (priority, primary, unc.lower())
+
+    report_path = os.path.join(results_dir, "access_report.txt")
+    with open(report_path, "w", encoding="utf-8") as handle:
+        for unc in sorted(accessed_shares):
+            print(unc)
+            handle.write(unc + "\n")
+    if accessed_shares:
+        print()
 
     for _, _, unc in sorted(results, key=sort_key):
         print(unc)
