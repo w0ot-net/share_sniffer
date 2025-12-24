@@ -1,197 +1,304 @@
 #!/usr/bin/env python3
+import argparse
 import datetime
+import getpass
 import os
 import re
 import sys
 
-from smbclient_utils import build_smbclient_parser, detect_input_flag, ensure_smbclient_on_path, run_smbclient
-from wrapper_utils import build_target, expand_list_items, require_no_inline_creds, split_args
+from impacket.smbconnection import SMBConnection, SessionError
+
+from wrapper_utils import expand_list_items
 
 
-def print_wrapper_help():
-    print("wrapper options:")
-    print("  --targets <host|ip|file>       can be repeated; file has one target per line")
-    print("  --username <name>              optional username to apply to all targets")
-    print("  --domain <name>                optional domain to apply to all targets")
-    print("  --password <value>             optional password to apply to all targets")
-    print("  --verbose                      print smbclient output and wrapper commands")
-    print("  -o, --output <dir>             output directory (default: ./results_<timestamp>)")
-    print()
-    print("note: smbclient.py has its own -debug flag for protocol logging.")
+def parse_args(argv):
+    parser = argparse.ArgumentParser(
+        description="Scan SMB shares using impacket.",
+    )
+    parser.add_argument(
+        "--targets",
+        action="append",
+        help="Target host/ip or file with one target per line (can be repeated).",
+    )
+    parser.add_argument(
+        "--username",
+        help="Username to authenticate with.",
+    )
+    parser.add_argument(
+        "--domain",
+        help="Domain to authenticate with.",
+    )
+    parser.add_argument(
+        "--password",
+        help="Password to authenticate with.",
+    )
+    parser.add_argument(
+        "--hashes",
+        help="NTLM hashes in LMHASH:NTHASH format.",
+    )
+    parser.add_argument(
+        "--no-pass",
+        action="store_true",
+        help="Do not prompt for password (use empty password).",
+    )
+    parser.add_argument(
+        "-k",
+        "--kerberos",
+        action="store_true",
+        help="Use Kerberos authentication.",
+    )
+    parser.add_argument(
+        "--aes-key",
+        help="AES key for Kerberos authentication.",
+    )
+    parser.add_argument(
+        "--dc-ip",
+        help="Domain controller IP (used with Kerberos).",
+    )
+    parser.add_argument(
+        "--target-ip",
+        help="Override target IP (single target only).",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=445,
+        help="SMB port (default: 445).",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=10,
+        help="SMB connection timeout in seconds (default: 10).",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        help="Output directory (default: ./results_<timestamp>).",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Verbose logging.",
+    )
+    return parser.parse_args(argv)
 
 
 def sanitize_target(target):
     return re.sub(r"[^A-Za-z0-9._@-]", "_", target)
 
 
-def target_for_folder(target):
-    if "@" not in target:
-        return target
-    userpart, host = target.split("@", 1)
-    if "/" in userpart:
-        userpart = userpart.split("/", 1)[1]
-    if ":" in userpart:
-        userpart = userpart.split(":", 1)[0]
-    if not userpart:
+def target_folder(host, username):
+    if not username:
         return host
-    return f"{userpart}@{host}"
+    return f"{username}@{host}"
 
 
-def is_share_readable(output, returncode):
-    if returncode != 0:
-        return False
-    lowered = output.lower()
-    blocked_markers = [
-        "status_access_denied",
-        "access is denied",
-        "status_bad_network_name",
-        "no share selected",
-        "not logged in",
-        "status_logon_failure",
-        "smb sessionerror",
-    ]
-    return not any(marker in lowered for marker in blocked_markers)
+def parse_hashes(hashes):
+    if not hashes:
+        return None, None
+    if ":" not in hashes:
+        raise ValueError("error: --hashes must be LMHASH:NTHASH")
+    lmhash, nthash = hashes.split(":", 1)
+    return lmhash, nthash
 
 
-def parse_shares(output):
-    shares = []
-    for line in output.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        if line.startswith("#"):
-            continue
-        lower = line.lower()
-        if lower.startswith("sharename") or line.startswith("----"):
-            continue
-        if line.startswith("SMB") or line.startswith("Authentication"):
-            continue
-        if line.startswith("Impacket v"):
-            continue
-        if line.startswith("[*]") or line.startswith("[-]"):
-            continue
-        if lower.startswith("usage:") or lower.startswith("smbclient.py:"):
-            continue
-        if "executing commands from" in lower:
-            continue
-        parts = re.split(r"\s{2,}", line)
-        if parts and parts[0]:
-            shares.append(parts[0])
-    return shares
+def parse_target(value):
+    if "@" not in value:
+        return value, None, None, None
+    userpart, host = value.split("@", 1)
+    domain = None
+    if "/" in userpart:
+        domain, userpart = userpart.split("/", 1)
+    password = None
+    if ":" in userpart:
+        username, password = userpart.split(":", 1)
+    else:
+        username = userpart
+    username = username or None
+    return host, username, password, domain
+
+
+def resolve_password(username, provided_password, use_no_pass, hashes_present):
+    if provided_password is not None:
+        return provided_password
+    if not username:
+        return ""
+    if use_no_pass or hashes_present:
+        return ""
+    if sys.stdin.isatty():
+        return getpass.getpass("Password: ")
+    raise ValueError("error: --password required (or use --no-pass)")
+
+
+def normalize_share_name(raw):
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", errors="replace")
+    return raw.rstrip("\x00")
+
+
+def can_list_share(conn, share):
+    conn.listPath(share, "\\*")
+
+
+def write_tree(conn, share, handle, verbose):
+    def walk(win_path, display_path):
+        try:
+            entries = conn.listPath(share, f"{win_path}*")
+        except SessionError as exc:
+            if verbose:
+                print(f"[!] {share}: {exc}", file=sys.stderr)
+            return
+        for entry in entries:
+            name = entry.get_longname()
+            if name in (".", ".."):
+                continue
+            display = f"{display_path}/{name}" if display_path else f"/{name}"
+            if entry.is_directory():
+                handle.write(display + "/\n")
+                walk(f"{win_path}{name}\\", display)
+            else:
+                handle.write(display + "\n")
+
+    walk("\\", "")
+
+
+def connect_smb(host, username, password, domain, lmhash, nthash, args, target_ip):
+    remote_host = target_ip or host
+    conn = SMBConnection(host, remote_host, sess_port=args.port, timeout=args.timeout)
+    if args.kerberos:
+        conn.kerberosLogin(
+            username,
+            password,
+            domain,
+            lmhash=lmhash,
+            nthash=nthash,
+            aesKey=args.aes_key,
+            kdcHost=args.dc_ip,
+        )
+    else:
+        conn.login(username, password, domain, lmhash=lmhash, nthash=nthash)
+    return conn
 
 
 def main(argv):
-    default_output = f"./results_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    targets_raw, wrapper, smbclient_args, err = split_args(argv, "targets", default_output)
-    if err:
-        print(err, file=sys.stderr)
-        print_wrapper_help()
+    args = parse_args(argv)
+    if not args.targets:
+        print("error: no targets provided", file=sys.stderr)
         return 1
 
-    parser = build_smbclient_parser()
-    try:
-        parsed, unknown = parser.parse_known_args(smbclient_args)
-    except SystemExit as exc:
-        if exc.code == 0:
-            print()
-            print_wrapper_help()
-            return 0
-        print()
-        print_wrapper_help()
-        return 1
-
-    if parsed.file is not None:
-        print("error: do not pass -file; the wrapper manages commands", file=sys.stderr)
-        return 1
-
-    if parsed.inputfile is not None:
-        print("error: do not pass -inputfile; the wrapper manages commands", file=sys.stderr)
-        return 1
-
-    if parsed.outputfile is not None:
-        print("error: do not pass -outputfile; the wrapper manages output", file=sys.stderr)
-        return 1
-
-    if unknown:
-        print(f"error: unexpected arguments: {' '.join(unknown)}", file=sys.stderr)
-        print("hint: provide targets via --targets", file=sys.stderr)
-        print()
-        print_wrapper_help()
-        return 1
-
-    smbclient_cmd = ensure_smbclient_on_path()
-    input_flag = detect_input_flag(smbclient_cmd)
-    targets = expand_list_items(targets_raw)
+    targets = expand_list_items(args.targets)
     if not targets:
         print("error: no targets provided", file=sys.stderr)
         return 1
 
-    if wrapper["username"] or wrapper["domain"] or wrapper["password"] is not None:
-        if not require_no_inline_creds(
-            targets,
-            "error: do not mix --username/--domain/--password with targets that already include credentials",
-        ):
-            return 1
+    parsed_targets = []
+    inline_creds = False
+    for target in targets:
+        host, username, password, domain = parse_target(target)
+        if username or password or domain:
+            inline_creds = True
+        parsed_targets.append((host, username, password, domain))
+
+    global_creds = any(
+        [
+            args.username,
+            args.domain,
+            args.password is not None,
+            args.hashes,
+            args.no_pass,
+            args.kerberos,
+            args.aes_key,
+        ]
+    )
+    if inline_creds and global_creds:
+        print(
+            "error: do not mix inline credentials in targets with authentication flags",
+            file=sys.stderr,
+        )
+        return 1
+
+    if args.target_ip and len(parsed_targets) > 1:
+        print("error: --target-ip only supports a single target", file=sys.stderr)
+        return 1
+
+    try:
+        lmhash, nthash = parse_hashes(args.hashes)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    if args.kerberos and not (args.username or inline_creds):
+        print("error: --kerberos requires --username or inline credentials", file=sys.stderr)
+        return 1
+
+    output_root = args.output or f"./results_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    os.makedirs(output_root, exist_ok=True)
+
+    for host, inline_user, inline_pass, inline_domain in parsed_targets:
+        username = inline_user or args.username or ""
+        domain = inline_domain or args.domain or ""
         try:
-            targets = [
-                build_target(target, wrapper["username"], wrapper["domain"], wrapper["password"])
-                for target in targets
-            ]
+            password = resolve_password(
+                username,
+                inline_pass if inline_user else args.password,
+                args.no_pass,
+                bool(args.hashes),
+            )
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             return 1
 
-    output_root = wrapper["output"]
-    os.makedirs(output_root, exist_ok=True)
+        if args.hashes and not username:
+            print("error: --hashes requires a username", file=sys.stderr)
+            return 1
 
-    for target in targets:
-        folder_target = target_for_folder(target)
-        target_dir = os.path.join(output_root, sanitize_target(folder_target))
+        target_label = target_folder(host, username)
+        target_dir = os.path.join(output_root, sanitize_target(target_label))
         os.makedirs(target_dir, exist_ok=True)
-        print(f"[*] {target}: enumerating shares")
+        print(f"[*] {host}: enumerating shares")
 
-        code, output = run_smbclient(
-            smbclient_cmd,
-            smbclient_args,
-            target,
-            "shares",
-            wrapper["verbose"],
-            input_flag,
-        )
-        if code != 0:
-            print(f"[!] {target}: failed to enumerate shares", file=sys.stderr)
-            if wrapper["verbose"] and output:
-                print(output, file=sys.stderr)
+        try:
+            conn = connect_smb(host, username, password, domain, lmhash, nthash, args, args.target_ip)
+        except SessionError as exc:
+            print(f"[!] {host}: authentication failed: {exc}", file=sys.stderr)
+            continue
+        except Exception as exc:
+            print(f"[!] {host}: connection failed: {exc}", file=sys.stderr)
             continue
 
-        shares = parse_shares(output)
+        try:
+            shares = []
+            for share in conn.listShares():
+                name = normalize_share_name(share["shi1_netname"])
+                if name:
+                    shares.append(name)
+        except SessionError as exc:
+            print(f"[!] {host}: failed to list shares: {exc}", file=sys.stderr)
+            conn.logoff()
+            continue
+
         if not shares:
-            print(f"[!] {target}: no shares found or output unparseable", file=sys.stderr)
+            print(f"[!] {host}: no shares found", file=sys.stderr)
+            conn.logoff()
             continue
 
         for share in shares:
-            command = f"use {share}\ntree"
-            code, listing = run_smbclient(
-                smbclient_cmd,
-                smbclient_args,
-                target,
-                command,
-                wrapper["verbose"],
-                input_flag,
-            )
-            if not is_share_readable(listing, code):
-                if wrapper["verbose"]:
-                    print(f"[!] {target}: {share} not readable, skipping", file=sys.stderr)
-                    if listing:
-                        print(listing, file=sys.stderr)
+            try:
+                can_list_share(conn, share)
+            except SessionError as exc:
+                if args.verbose:
+                    print(f"[!] {host}: {share} not readable: {exc}", file=sys.stderr)
                 continue
 
             share_dir = os.path.join(target_dir, share)
             os.makedirs(share_dir, exist_ok=True)
             out_path = os.path.join(share_dir, "files.txt")
-            print(f"[+] {target}: {share} -> {out_path}")
+            print(f"[+] {host}: {share} -> {out_path}")
             with open(out_path, "w", encoding="utf-8") as handle:
-                handle.write(listing)
+                write_tree(conn, share, handle, args.verbose)
+
+        conn.logoff()
 
     return 0
 

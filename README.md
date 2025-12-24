@@ -1,12 +1,14 @@
 # share_sniffer
-scan smb shares using impacket's smbclient
+scan smb shares using impacket
+
+requires the `impacket` Python package (for example `python3-impacket` or `pip install impacket`).
 
 ## usage
 ```
-./share_sniffer.py --targets targets.txt <smbclient.py args>
-./share_sniffer.py --targets 10.0.0.1 <smbclient.py args>
-./share_sniffer.py --targets targets.txt --username USER --domain DOMAIN --password PASS <smbclient.py args>
-./share_sniffer.py --targets targets.txt -o ./results <smbclient.py args>
+./share_sniffer.py --targets targets.txt
+./share_sniffer.py --targets 10.0.0.1
+./share_sniffer.py --targets targets.txt --username USER --domain DOMAIN --password PASS
+./share_sniffer.py --targets targets.txt -o ./results
 ```
 
 outputs a directory per target, then per share, with a `files.txt` recursive listing:
@@ -22,7 +24,7 @@ outputs a directory per target, then per share, with a `files.txt` recursive lis
 
 ## download files
 ```
-./downloader.py --paths //host/share/path/file.txt <smbclient.py args>
-./downloader.py --paths unc_list.txt <smbclient.py args>
-./downloader.py --paths unc_list.txt -o ./files <smbclient.py args>
+./downloader.py --paths //host/share/path/file.txt
+./downloader.py --paths unc_list.txt
+./downloader.py --paths unc_list.txt -o ./files
 ```
