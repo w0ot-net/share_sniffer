@@ -7,7 +7,7 @@ import sys
 
 from impacket.smbconnection import SMBConnection, SessionError
 
-from smb_utils import (
+from common import (
     add_auth_args,
     connect_smb,
     expand_list_items,
