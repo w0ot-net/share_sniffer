@@ -158,27 +158,118 @@ def normalize_share_name(raw):
     return raw.rstrip("\x00")
 
 
-def write_tree(conn, share, handle, verbose, initial_entries=None):
-    def walk(win_path, display_path, entries=None):
-        if entries is None:
-            try:
-                entries = conn.listPath(share, f"{win_path}*")
-            except SessionError as exc:
-                if verbose:
-                    print(f"[!] {share}: {exc}", file=sys.stderr)
-                return
-        for entry in entries:
-            name = entry.get_longname()
-            if name in (".", ".."):
-                continue
-            display = f"{display_path}/{name}" if display_path else f"/{name}"
-            if entry.is_directory():
-                handle.write(display + "/\n")
-                walk(f"{win_path}{name}\\", display)
-            else:
-                handle.write(display + "\n")
+def write_tree(conn, share, handle, verbose, initial_entries=None, dir_threads=1, connect_func=None):
+    """Enumerate files in a share and write paths to handle.
 
-    walk("\\", "", initial_entries)
+    If dir_threads > 1 and connect_func is provided, uses parallel directory
+    enumeration with multiple connections.
+    """
+    if dir_threads == 1 or connect_func is None:
+        # Single-threaded recursive approach
+        def walk(win_path, display_path, entries=None):
+            if entries is None:
+                try:
+                    entries = conn.listPath(share, f"{win_path}*")
+                except SessionError as exc:
+                    if verbose:
+                        print(f"[!] {share}: {exc}", file=sys.stderr)
+                    return
+            for entry in entries:
+                name = entry.get_longname()
+                if name in (".", ".."):
+                    continue
+                display = f"{display_path}/{name}" if display_path else f"/{name}"
+                if entry.is_directory():
+                    handle.write(display + "/\n")
+                    walk(f"{win_path}{name}\\", display)
+                else:
+                    handle.write(display + "\n")
+
+        walk("\\", "", initial_entries)
+    else:
+        # Parallel directory enumeration using work queue
+        import queue
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+
+        work_queue = queue.Queue()
+        results_lock = threading.Lock()
+        results = []  # List of (display_path, is_dir) tuples
+
+        def process_entries(entries, win_path, display_path):
+            """Process entries and queue subdirectories for enumeration."""
+            subdirs = []
+            for entry in entries:
+                name = entry.get_longname()
+                if name in (".", ".."):
+                    continue
+                display = f"{display_path}/{name}" if display_path else f"/{name}"
+                if entry.is_directory():
+                    with results_lock:
+                        results.append((display + "/", True))
+                    subdirs.append((f"{win_path}{name}\\", display))
+                else:
+                    with results_lock:
+                        results.append((display, False))
+            return subdirs
+
+        def worker():
+            """Worker thread that processes directories from the queue."""
+            local_conn = None
+            try:
+                local_conn = connect_func()
+                while True:
+                    try:
+                        item = work_queue.get(timeout=0.1)
+                    except queue.Empty:
+                        continue
+                    if item is None:
+                        break
+                    win_path, display_path = item
+                    try:
+                        entries = local_conn.listPath(share, f"{win_path}*")
+                        subdirs = process_entries(entries, win_path, display_path)
+                        for subdir in subdirs:
+                            work_queue.put(subdir)
+                    except SessionError as exc:
+                        if verbose:
+                            print(f"[!] {share}: {exc}", file=sys.stderr)
+                    finally:
+                        work_queue.task_done()
+            finally:
+                if local_conn:
+                    try:
+                        local_conn.logoff()
+                    except Exception:
+                        pass
+
+        # Process initial entries (root level)
+        if initial_entries:
+            subdirs = process_entries(initial_entries, "\\", "")
+            for subdir in subdirs:
+                work_queue.put(subdir)
+        else:
+            work_queue.put(("\\", ""))
+
+        # Start worker threads
+        workers = []
+        for _ in range(dir_threads):
+            t = threading.Thread(target=worker, daemon=True)
+            t.start()
+            workers.append(t)
+
+        # Wait for all work to complete
+        work_queue.join()
+
+        # Signal workers to stop
+        for _ in workers:
+            work_queue.put(None)
+        for t in workers:
+            t.join(timeout=1.0)
+
+        # Write results to file (sorted for consistent output)
+        for path, _ in sorted(results):
+            handle.write(path + "\n")
 
 
 def connect_smb(host, username, password, domain, lmhash, nthash, args, target_ip):
@@ -291,8 +382,11 @@ def main(argv):
         os.makedirs(target_dir, exist_ok=True)
         print(f"[*] {host}: enumerating shares")
 
+        def make_connection():
+            return connect_smb(host, username, password, domain, lmhash, nthash, args, args.target_ip)
+
         try:
-            conn = connect_smb(host, username, password, domain, lmhash, nthash, args, args.target_ip)
+            conn = make_connection()
         except SessionError as exc:
             print(f"[!] {host}: authentication failed: {exc}", file=sys.stderr)
             return
@@ -316,26 +410,17 @@ def main(argv):
             conn.logoff()
             return
 
-        conn.logoff()
-
-        def process_share(share_name):
-            try:
-                share_conn = connect_smb(
-                    host,
-                    username,
-                    password,
-                    domain,
-                    lmhash,
-                    nthash,
-                    args,
-                    args.target_ip,
-                )
-            except SessionError as exc:
-                print(f"[!] {host}: authentication failed: {exc}", file=sys.stderr)
-                return
-            except Exception as exc:
-                print(f"[!] {host}: connection failed: {exc}", file=sys.stderr)
-                return
+        def process_share(share_name, share_conn=None):
+            owns_connection = share_conn is None
+            if owns_connection:
+                try:
+                    share_conn = make_connection()
+                except SessionError as exc:
+                    print(f"[!] {host}: authentication failed: {exc}", file=sys.stderr)
+                    return
+                except Exception as exc:
+                    print(f"[!] {host}: connection failed: {exc}", file=sys.stderr)
+                    return
 
             try:
                 try:
@@ -350,22 +435,30 @@ def main(argv):
                 out_path = os.path.join(share_dir, "files.txt")
                 print(f"[+] {host}: {share_name} -> {out_path}")
                 with open(out_path, "w", encoding="utf-8") as handle:
-                    write_tree(share_conn, share_name, handle, args.verbose, initial_entries)
+                    # Pass dir_threads and connect_func for parallel enumeration
+                    connect_func = make_connection if args.dir_threads > 1 else None
+                    write_tree(
+                        share_conn, share_name, handle, args.verbose, initial_entries,
+                        dir_threads=args.dir_threads, connect_func=connect_func
+                    )
             finally:
-                share_conn.logoff()
+                if owns_connection:
+                    share_conn.logoff()
 
         if args.share_threads == 1:
+            # Single-threaded: reuse the main connection for all shares
             for share in shares:
-                process_share(share)
+                process_share(share, share_conn=conn)
+            conn.logoff()
         else:
+            # Multi-threaded: each thread gets its own connection
+            conn.logoff()  # Close the initial connection, threads will create their own
             from concurrent.futures import ThreadPoolExecutor
 
             with ThreadPoolExecutor(max_workers=args.share_threads) as executor:
                 futures = [executor.submit(process_share, share) for share in shares]
                 for future in futures:
                     future.result()
-
-        conn.logoff()
 
     if args.threads == 1:
         for entry in resolved_targets:
