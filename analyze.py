@@ -160,7 +160,7 @@ IGNORED_CONFIG_FILENAMES = {
     "regsvcs.exe.config",
     "vbc.exe.config",
 }
-RESULTS_PATTERN = re.compile(r"^results_\\d{8}_\\d{6}$")
+RESULTS_PATTERN = re.compile(r"^results_\d{8}_\d{6}$")
 
 
 def parse_args(argv):
@@ -361,6 +361,9 @@ def parse_tree_output(lines):
 
 
 def main(argv):
+    if not argv:
+        parse_args(["-h"])
+        return 0
     args = parse_args(argv)
     results_dir = args.results_dir or find_latest_results_dir()
     if not results_dir:

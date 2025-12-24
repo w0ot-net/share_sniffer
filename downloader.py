@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 import argparse
-import getpass
 import os
 import re
 import sys
 
-from impacket.smbconnection import SMBConnection, SessionError
+from impacket.smbconnection import SessionError
 
-from wrapper_utils import expand_list_items
+from lib.smb_utils import (
+    connect_smb,
+    expand_list_items,
+    parse_hashes,
+    parse_target,
+    resolve_password,
+)
 
 
 def parse_args(argv):
@@ -84,31 +89,6 @@ def parse_args(argv):
     return parser.parse_args(argv)
 
 
-def parse_hashes(hashes):
-    if not hashes:
-        return None, None
-    if ":" not in hashes:
-        raise ValueError("error: --hashes must be LMHASH:NTHASH")
-    lmhash, nthash = hashes.split(":", 1)
-    return lmhash, nthash
-
-
-def parse_target(value):
-    if "@" not in value:
-        return value, None, None, None
-    userpart, host = value.split("@", 1)
-    domain = None
-    if "/" in userpart:
-        domain, userpart = userpart.split("/", 1)
-    password = None
-    if ":" in userpart:
-        username, password = userpart.split(":", 1)
-    else:
-        username = userpart
-    username = username or None
-    return host, username, password, domain
-
-
 def parse_unc(unc):
     unc = unc.strip()
     if unc.startswith("\\\\"):
@@ -131,37 +111,10 @@ def sanitize_filename(name):
     return re.sub(r"[^A-Za-z0-9._-]", "_", name)
 
 
-def resolve_password(username, provided_password, use_no_pass, hashes_present):
-    if provided_password is not None:
-        return provided_password
-    if not username:
-        return ""
-    if use_no_pass or hashes_present:
-        return ""
-    if sys.stdin.isatty():
-        return getpass.getpass("Password: ")
-    raise ValueError("error: --password required (or use --no-pass)")
-
-
-def connect_smb(host, username, password, domain, lmhash, nthash, args, target_ip):
-    remote_host = target_ip or host
-    conn = SMBConnection(host, remote_host, sess_port=args.port, timeout=args.timeout)
-    if args.kerberos:
-        conn.kerberosLogin(
-            username,
-            password,
-            domain,
-            lmhash=lmhash,
-            nthash=nthash,
-            aesKey=args.aes_key,
-            kdcHost=args.dc_ip,
-        )
-    else:
-        conn.login(username, password, domain, lmhash=lmhash, nthash=nthash)
-    return conn
-
-
 def main(argv):
+    if not argv:
+        parse_args(["-h"])
+        return 0
     args = parse_args(argv)
     if not args.paths:
         print("error: no UNC paths provided", file=sys.stderr)
@@ -266,22 +219,12 @@ def main(argv):
                     conn.getFile(share, remote_win, handle.write)
                 os.replace(tmp_path, abs_local)
                 status = "ok"
-            except SessionError as exc:
-                status = "failed"
-                if args.verbose:
-                    print(f"[!] {host}: {exc}", file=sys.stderr)
-                try:
-                    if os.path.exists(tmp_path):
-                        os.unlink(tmp_path)
-                except OSError:
-                    pass
             except Exception as exc:
                 status = "failed"
                 if args.verbose:
                     print(f"[!] {host}: {exc}", file=sys.stderr)
                 try:
-                    if os.path.exists(tmp_path):
-                        os.unlink(tmp_path)
+                    os.unlink(tmp_path)
                 except OSError:
                     pass
 

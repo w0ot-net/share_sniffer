@@ -18,8 +18,8 @@ outputs a directory per target, then per share, with a `files.txt` recursive lis
 
 ## scan results
 ```
-./scan_results.py
-./scan_results.py -d ./results_20240101_120000
+./analyze.py
+./analyze.py -d ./results_20240101_120000
 ```
 
 ## download files
