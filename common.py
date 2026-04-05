@@ -90,7 +90,7 @@ def expand_list_items(raw_items):
 
 def parse_hashes(hashes):
     if not hashes:
-        return None, None
+        return "", ""
     if ":" not in hashes:
         raise ValueError("error: --hashes must be LMHASH:NTHASH")
     lmhash, nthash = hashes.split(":", 1)
