@@ -22,9 +22,9 @@ def parse_args(argv):
         description="Scan SMB shares using impacket.",
     )
     parser.add_argument(
-        "--targets",
-        action="append",
-        help="Target host/ip or file with one target per line (can be repeated).",
+        "target",
+        nargs="*",
+        help="Target host/ip or file with one target per line.",
     )
     parser.add_argument(
         "-o",
@@ -189,11 +189,11 @@ def write_tree(conn, share, handle, verbose, initial_entries=None, dir_threads=1
 
 def main(argv):
     args = parse_args(argv)
-    if not args.targets:
+    if not args.target:
         print("error: no targets provided", file=sys.stderr)
         return 1
 
-    targets = expand_list_items(args.targets)
+    targets = expand_list_items(args.target)
     if not targets:
         print("error: no targets provided", file=sys.stderr)
         return 1
