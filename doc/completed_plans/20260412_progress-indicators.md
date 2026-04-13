@@ -87,3 +87,16 @@ vanish naturally.
 
 - `share_sniffer.py:write_tree()` (line 74): add `label` parameter, counter, `_tick()` helper, and calls in both code paths.
 - `share_sniffer.py:process_share()` (line 341): pass `label=f"{host}: {share_name}"` to `write_tree()`.
+
+## Execution Notes
+
+Implemented 2026-04-12. Commit: `8629575`.
+
+- Added `import time` at module level (review finding: avoid repeated function-level import).
+- Added `label` as a positional parameter on `write_tree()`.
+- `_tick()` helper defined once before the single/multi-threaded branch; both paths call it.
+- Single-threaded path: `_tick()` called after each `handle.write()`.
+- Multi-threaded path: `_tick()` called inside existing `with results_lock:` blocks — no new locks.
+- Completion line `[*] label -- N entries, done.` printed after both paths converge.
+- Removed dead `from concurrent.futures import ThreadPoolExecutor` import in multi-threaded path (review finding).
+- No deviations from plan.
