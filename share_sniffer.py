@@ -4,6 +4,7 @@ import datetime
 import os
 import re
 import sys
+import time
 
 from impacket.smbconnection import SMBConnection, SessionError
 
@@ -75,12 +76,23 @@ def normalize_share_name(raw):
     return raw.rstrip("\x00")
 
 
-def write_tree(conn, share, handle, verbose, initial_entries=None, dir_threads=1, connect_func=None):
+def write_tree(conn, share, handle, verbose, label, initial_entries=None, dir_threads=1, connect_func=None):
     """Enumerate files in a share and write paths to handle.
 
     If dir_threads > 1 and connect_func is provided, uses parallel directory
     enumeration with multiple connections.
     """
+    _count = 0
+    _last_report = time.monotonic()
+
+    def _tick():
+        nonlocal _count, _last_report
+        _count += 1
+        now = time.monotonic()
+        if now - _last_report >= 5.0:
+            print(f"[*] {label} -- {_count:,} entries...", file=sys.stderr)
+            _last_report = now
+
     if dir_threads == 1 or connect_func is None:
         # Single-threaded recursive approach
         def walk(win_path, display_path, entries=None):
@@ -98,16 +110,17 @@ def write_tree(conn, share, handle, verbose, initial_entries=None, dir_threads=1
                 display = f"{display_path}/{name}" if display_path else f"/{name}"
                 if entry.is_directory():
                     handle.write(display + "/\n")
+                    _tick()
                     walk(f"{win_path}{name}\\", display)
                 else:
                     handle.write(display + "\n")
+                    _tick()
 
         walk("\\", "", initial_entries)
     else:
         # Parallel directory enumeration using work queue
         import queue
         import threading
-        from concurrent.futures import ThreadPoolExecutor
 
         work_queue = queue.Queue()
         results_lock = threading.Lock()
@@ -124,10 +137,12 @@ def write_tree(conn, share, handle, verbose, initial_entries=None, dir_threads=1
                 if entry.is_directory():
                     with results_lock:
                         results.append((display + "/", True))
+                        _tick()
                     subdirs.append((f"{win_path}{name}\\", display))
                 else:
                     with results_lock:
                         results.append((display, False))
+                        _tick()
             return subdirs
 
         def worker():
@@ -187,6 +202,8 @@ def write_tree(conn, share, handle, verbose, initial_entries=None, dir_threads=1
         # Write results to file (sorted for consistent output)
         for path, _ in sorted(results):
             handle.write(path + "\n")
+
+    print(f"[*] {label} -- {_count:,} entries, done.", file=sys.stderr)
 
 
 
@@ -350,7 +367,9 @@ def main(argv):
                     # Pass dir_threads and connect_func for parallel enumeration
                     connect_func = make_connection if args.dir_threads > 1 else None
                     write_tree(
-                        share_conn, share_name, handle, args.verbose, initial_entries,
+                        share_conn, share_name, handle, args.verbose,
+                        label=f"{host}: {share_name}",
+                        initial_entries=initial_entries,
                         dir_threads=args.dir_threads, connect_func=connect_func
                     )
             finally:
