@@ -52,6 +52,10 @@ def parse_args(argv):
         default=1,
         help="Max simultaneous directory listings per share (default: 1).",
     )
+    parser.add_argument(
+        "--exclude-shares",
+        help="Comma-separated share names to skip (case-insensitive, e.g. 'ADMIN$,C$').",
+    )
     return parser.parse_args(argv)
 
 
@@ -272,6 +276,10 @@ def main(argv):
 
         resolved_targets.append((host, username, password, domain))
 
+    exclude_shares = set()
+    if args.exclude_shares:
+        exclude_shares = {s.strip().upper() for s in args.exclude_shares.split(",")}
+
     def process_target(entry):
         host, username, password, domain = entry
         target_label = target_folder(host, username)
@@ -301,6 +309,9 @@ def main(argv):
             print(f"[!] {host}: failed to list shares: {exc}", file=sys.stderr)
             conn.logoff()
             return
+
+        if exclude_shares:
+            shares = [s for s in shares if s.upper() not in exclude_shares]
 
         if not shares:
             print(f"[!] {host}: no shares found", file=sys.stderr)
