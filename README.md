@@ -29,8 +29,9 @@ The scanner writes one recursive listing per readable share:
 ```
 
 The scanner exits `0` when at least one requested target has a successfully enumerated
-share, and `1` when all requested targets fail or input is invalid. Individual
-inaccessible shares and directories remain best-effort skips.
+share, and `1` when no parsed target succeeds. Command-line syntax errors remain
+nonzero argparse usage errors. Individual inaccessible shares and directories remain
+best-effort skips.
 
 ## Authentication
 
