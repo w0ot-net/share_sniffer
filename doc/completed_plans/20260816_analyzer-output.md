@@ -70,3 +70,18 @@ still occurs.
 - Exact filenames are prioritized from their unmodified values.
 - Interactive output retains red filename highlighting.
 - Existing match, ignore, and sorting rules otherwise remain unchanged.
+
+## Execution Notes
+
+Implemented 2026-08-16. Commit: `d9636ee`.
+
+- Analyzer matching, exact-priority calculation, and sorting now use an unchanged raw
+  path and UNC value.
+- Terminal highlighting is built as a separate display value only when stdout reports
+  that it is a TTY; redirected output remains free of ANSI control bytes.
+- Added non-TTY exact-ordering and TTY-highlight regressions using temporary result
+  trees and captured stdout.
+- Validation passed: `python3 -m unittest -v
+  tests.test_regressions.AnalyzerOutputTests`, the full regression module,
+  `python3 -m compileall -q analyze.py tests`, and `git diff --check`.
+- No material deviations or unresolved items.
