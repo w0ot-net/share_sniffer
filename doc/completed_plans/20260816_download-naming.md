@@ -75,3 +75,20 @@ sanitization must differ.
 - Generated components are flat, readable, deterministic, and no longer than 240
   bytes.
 - No runtime or test dependency is added.
+
+## Execution Notes
+
+Implemented 2026-08-16. Commit: `8ab8e7a`.
+
+- Replaced separator flattening with a focused local-name function that canonicalizes
+  parsed host/share/remote identity, excludes credentials, and hashes UTF-8 identity
+  with SHA-256.
+- Local names retain a sanitized readable prefix and full digest while remaining at
+  most 240 ASCII bytes; download and `.part` paths remain flat and atomic.
+- Added pure regressions for collision separation, slash normalization, deterministic
+  output, credential exclusion, and length bounds; downloader status tests continue to
+  exercise completed and cleaned-up transfers.
+- Validation passed: `python3 -m unittest -v
+  tests.test_regressions.DownloadNamingTests`, the downloader status regression class,
+  `python3 -m compileall -q downloader.py tests`, and `git diff --check`.
+- No material deviations or unresolved items.
