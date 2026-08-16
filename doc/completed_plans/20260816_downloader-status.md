@@ -65,3 +65,18 @@ attempts, not internal flag structure.
 - Later work is still attempted after a failure.
 - An all-success invocation returns `0` and retains atomic `.part` replacement.
 - Tests require no live server or new dependency.
+
+## Execution Notes
+
+Implemented 2026-08-16. Commit: `cf98999`.
+
+- Added one aggregate outcome flag covering grouped host connection failures and
+  individual transfer failures without changing continue-on-error loop behavior.
+- The downloader now returns `1` after any failed requested transfer and `0` only when
+  all requested transfers succeed.
+- Added mocked complete-failure, mixed, and all-success regressions; the mixed case
+  verifies remaining work is attempted and `.part` files are removed.
+- Validation passed: `python3 -m unittest -v
+  tests.test_regressions.DownloaderStatusTests`, the scanner regression class,
+  `python3 -m compileall -q downloader.py tests`, and `git diff --check`.
+- No material deviations or unresolved items.
