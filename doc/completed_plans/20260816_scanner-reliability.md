@@ -85,3 +85,20 @@ returns `0` when at least one target succeeds and `1` when all fail. Print the e
 - Total scan failure returns nonzero; at least one successfully enumerated target keeps
   the scanner successful.
 - The regressions run without network access or a new dependency.
+
+## Execution Notes
+
+Implemented 2026-08-16. Commit: `2b8f8d2`.
+
+- Established directory-worker connections before queueing work, required at least one
+  started worker, and closed connections for failed starts.
+- Added per-item exception containment, `threading.Event` failure signaling, guaranteed
+  queue accounting, worker cleanup, and sorted partial-result writes.
+- Propagated booleans from traversal through shares and targets so total scan failure
+  returns `1` while best-effort partial success returns `0`.
+- Added four mocked scanner regressions in `tests/test_regressions.py`; no live SMB
+  fixture or new dependency was introduced.
+- Validation passed: `python3 -m unittest -v
+  tests.test_regressions.ScannerReliabilityTests`, `python3 -m compileall -q
+  share_sniffer.py tests`, and `git diff --check`.
+- No material deviations or unresolved items.
