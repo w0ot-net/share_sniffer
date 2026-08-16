@@ -6,6 +6,7 @@ import threading
 import unittest
 from unittest import mock
 
+import downloader
 import share_sniffer
 
 
@@ -35,6 +36,21 @@ class FakeScanConnection:
 class FailingWorkerConnection:
     def listPath(self, share, path):
         raise RuntimeError("simulated directory failure")
+
+    def logoff(self):
+        pass
+
+
+class FakeDownloadConnection:
+    def __init__(self, failing_names=()):
+        self.failing_names = set(failing_names)
+        self.attempts = []
+
+    def getFile(self, share, remote, callback):
+        self.attempts.append((share, remote))
+        if any(remote.endswith(name) for name in self.failing_names):
+            raise OSError("simulated transfer failure")
+        callback(b"downloaded")
 
     def logoff(self):
         pass
@@ -126,6 +142,69 @@ class ScannerReliabilityTests(unittest.TestCase):
 
         self.assertEqual(status, 0)
         self.assertEqual(contents, "/file.txt\n")
+
+
+class DownloaderStatusTests(unittest.TestCase):
+    def run_downloader(self, output_dir, connection):
+        with mock.patch.object(downloader, "connect_smb", return_value=connection):
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
+                io.StringIO()
+            ):
+                return downloader.main(
+                    [
+                        "--paths",
+                        "//host/share/one.txt",
+                        "--paths",
+                        "//host/share/two.txt",
+                        "--no-pass",
+                        "-o",
+                        output_dir,
+                    ]
+                )
+
+    def test_connection_failure_returns_nonzero(self):
+        with tempfile.TemporaryDirectory() as output_dir:
+            with mock.patch.object(
+                downloader,
+                "connect_smb",
+                side_effect=OSError("connection failed"),
+            ):
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
+                    io.StringIO()
+                ):
+                    status = downloader.main(
+                        [
+                            "--paths",
+                            "//host/share/file.txt",
+                            "--no-pass",
+                            "-o",
+                            output_dir,
+                        ]
+                    )
+
+        self.assertEqual(status, 1)
+
+    def test_mixed_transfers_continue_and_return_nonzero(self):
+        connection = FakeDownloadConnection(failing_names={"one.txt"})
+        with tempfile.TemporaryDirectory() as output_dir:
+            status = self.run_downloader(output_dir, connection)
+            output_names = os.listdir(output_dir)
+
+        self.assertEqual(status, 1)
+        self.assertEqual(len(connection.attempts), 2)
+        self.assertEqual(len(output_names), 1)
+        self.assertFalse(any(name.endswith(".part") for name in output_names))
+
+    def test_all_successful_transfers_return_zero(self):
+        connection = FakeDownloadConnection()
+        with tempfile.TemporaryDirectory() as output_dir:
+            status = self.run_downloader(output_dir, connection)
+            output_names = os.listdir(output_dir)
+
+        self.assertEqual(status, 0)
+        self.assertEqual(len(connection.attempts), 2)
+        self.assertEqual(len(output_names), 2)
+        self.assertFalse(any(name.endswith(".part") for name in output_names))
 
 
 if __name__ == "__main__":

@@ -121,6 +121,7 @@ def main(argv):
         key = (host, username, password, domain)
         grouped.setdefault(key, {}).setdefault(share, []).append(remote)
 
+    all_succeeded = True
     for (host, inline_user, inline_pass, inline_domain), shares in grouped.items():
         username = inline_user or args.username or ""
         domain = inline_domain or args.domain or ""
@@ -143,9 +144,11 @@ def main(argv):
             conn = connect_smb(host, username, password, domain, lmhash, nthash, args, args.target_ip)
         except SessionError as exc:
             print(f"[!] {host}: authentication failed: {exc}", file=sys.stderr)
+            all_succeeded = False
             continue
         except Exception as exc:
             print(f"[!] {host}: connection failed: {exc}", file=sys.stderr)
+            all_succeeded = False
             continue
 
         for share in sorted(shares):
@@ -167,6 +170,7 @@ def main(argv):
                     status = "ok"
                 except SessionError as exc:
                     status = "failed"
+                    all_succeeded = False
                     if args.verbose:
                         print(f"[!] {host}: {exc}", file=sys.stderr)
                     try:
@@ -176,6 +180,7 @@ def main(argv):
                         pass
                 except Exception as exc:
                     status = "failed"
+                    all_succeeded = False
                     if args.verbose:
                         print(f"[!] {host}: {exc}", file=sys.stderr)
                     try:
@@ -188,7 +193,7 @@ def main(argv):
 
         conn.logoff()
 
-    return 0
+    return 0 if all_succeeded else 1
 
 
 if __name__ == "__main__":
