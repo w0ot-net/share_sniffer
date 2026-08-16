@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import hashlib
 import os
 import re
 import sys
@@ -53,8 +54,15 @@ def parse_unc(unc):
     return host, share, remote, username, password, domain
 
 
-def sanitize_filename(name):
-    return re.sub(r"[^A-Za-z0-9._-]", "_", name)
+def download_filename(host, share, remote):
+    normalized_remote = remote.replace("\\", "/").lstrip("/")
+    identity = f"//{host}/{share}/{normalized_remote}"
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+    prefix = re.sub(r"[^A-Za-z0-9._-]", "_", identity).lstrip("._-")
+    prefix = prefix or "download"
+    separator = "__"
+    max_prefix_length = 240 - len(separator) - len(digest)
+    return f"{prefix[:max_prefix_length]}{separator}{digest}"
 
 
 
@@ -154,8 +162,7 @@ def main(argv):
         for share in sorted(shares):
             for remote in shares[share]:
                 remote = remote.lstrip("/")
-                encoded_remote = remote.replace("\\", "/").replace("/", "_")
-                encoded = sanitize_filename(f"{host}_{share}_{encoded_remote}").lstrip("_")
+                encoded = download_filename(host, share, remote)
                 local_path = os.path.join(args.output, encoded)
                 abs_local = os.path.abspath(local_path)
                 tmp_path = abs_local + ".part"

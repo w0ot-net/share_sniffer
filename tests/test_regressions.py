@@ -258,5 +258,39 @@ class AnalyzerOutputTests(unittest.TestCase):
         self.assertIn("\x1b[31mpassword\x1b[0m.txt", output)
 
 
+class DownloadNamingTests(unittest.TestCase):
+    def test_paths_that_only_collide_after_sanitizing_remain_distinct(self):
+        nested = downloader.download_filename("host", "share", "a/b.txt")
+        flattened = downloader.download_filename("host", "share", "a_b.txt")
+
+        self.assertNotEqual(nested, flattened)
+
+    def test_equivalent_separator_spellings_are_stable(self):
+        forward = downloader.download_filename("host", "share", "/a/b.txt")
+        backward = downloader.download_filename("host", "share", "\\a\\b.txt")
+
+        self.assertEqual(forward, backward)
+        self.assertEqual(
+            forward,
+            downloader.download_filename("host", "share", "/a/b.txt"),
+        )
+
+    def test_inline_credentials_are_not_part_of_the_filename_identity(self):
+        first = downloader.parse_unc("//user:first@host/share/file.txt")
+        second = downloader.parse_unc("//user:second@host/share/file.txt")
+
+        self.assertEqual(
+            downloader.download_filename(*first[:3]),
+            downloader.download_filename(*second[:3]),
+        )
+
+    def test_long_names_are_bounded_ascii_components(self):
+        name = downloader.download_filename("host", "share", "a" * 1000)
+
+        self.assertLessEqual(len(name.encode("ascii")), 240)
+        self.assertNotIn("/", name)
+        self.assertNotIn("\\", name)
+
+
 if __name__ == "__main__":
     unittest.main()
