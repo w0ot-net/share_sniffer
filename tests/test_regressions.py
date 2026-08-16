@@ -6,6 +6,7 @@ import threading
 import unittest
 from unittest import mock
 
+import analyze
 import downloader
 import share_sniffer
 
@@ -54,6 +55,11 @@ class FakeDownloadConnection:
 
     def logoff(self):
         pass
+
+
+class TtyStringIO(io.StringIO):
+    def isatty(self):
+        return True
 
 
 class ScannerReliabilityTests(unittest.TestCase):
@@ -205,6 +211,51 @@ class DownloaderStatusTests(unittest.TestCase):
         self.assertEqual(len(connection.attempts), 2)
         self.assertEqual(len(output_names), 2)
         self.assertFalse(any(name.endswith(".part") for name in output_names))
+
+
+class AnalyzerOutputTests(unittest.TestCase):
+    def run_analyzer(self, tree_lines, stdout):
+        with tempfile.TemporaryDirectory() as results_dir:
+            share_dir = os.path.join(results_dir, "host", "share")
+            os.makedirs(share_dir)
+            with open(
+                os.path.join(share_dir, "files.txt"),
+                "w",
+                encoding="utf-8",
+            ) as handle:
+                handle.write("".join(tree_lines))
+
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(
+                io.StringIO()
+            ):
+                status = analyze.main(["-d", results_dir])
+
+        return status, stdout.getvalue()
+
+    def test_redirected_results_are_raw_and_exact_names_sort_first(self):
+        status, output = self.run_analyzer(
+            ["/z/.env\n", "/a/file.conf\n"],
+            io.StringIO(),
+        )
+        result_lines = [
+            line for line in output.splitlines() if line.startswith("//host/share/")
+        ]
+
+        self.assertEqual(status, 0)
+        self.assertNotIn("\x1b", output)
+        self.assertEqual(
+            result_lines,
+            ["//host/share/z/.env", "//host/share/a/file.conf"],
+        )
+
+    def test_interactive_results_keep_highlighting(self):
+        status, output = self.run_analyzer(
+            ["/password.txt\n"],
+            TtyStringIO(),
+        )
+
+        self.assertEqual(status, 0)
+        self.assertIn("\x1b[31mpassword\x1b[0m.txt", output)
 
 
 if __name__ == "__main__":

@@ -374,6 +374,7 @@ def main(argv):
     if args.case_insensitive:
         ignore_set = {item.lower() for item in ignore_set}
     keyword_patterns = build_keyword_patterns(args.case_insensitive)
+    use_color = sys.stdout.isatty()
 
     results = []
     accessed_shares = set()
@@ -411,13 +412,20 @@ def main(argv):
                         filename_matches.append(base_lower)
                 path_matches = find_path_matches(path, args.case_insensitive, ignore_set)
                 all_matches = filename_matches + path_matches
-                highlighted = highlight_filename(filename, filename_matches, args.case_insensitive)
-                if highlighted != filename:
-                    path = path[: -len(filename)] + highlighted
-                unc = f"//{host}/{share}{path}"
                 base = os.path.basename(path)
                 base_compare = base.lower() if args.case_insensitive else base
                 exact_match = is_exact_filename_match(base_compare, ignore_set)
+                unc = f"//{host}/{share}{path}"
+                display_unc = unc
+                if use_color:
+                    highlighted = highlight_filename(
+                        filename,
+                        filename_matches,
+                        args.case_insensitive,
+                    )
+                    if highlighted != filename:
+                        display_path = path[: -len(filename)] + highlighted
+                        display_unc = f"//{host}/{share}{display_path}"
                 if "nude" in all_matches:
                     primary = "nude"
                 elif "password" in all_matches:
@@ -427,9 +435,9 @@ def main(argv):
                 else:
                     primary = "other"
                 priority = 0 if exact_match or "nude" in all_matches or "password" in all_matches else 1
-                results.append((priority, primary, unc))
+                results.append((priority, primary, unc, display_unc))
     def sort_key(item):
-        priority, primary, unc = item
+        priority, primary, unc, _ = item
         return (priority, primary, unc.lower())
 
     report_path = os.path.join(results_dir, "access_report.txt")
@@ -440,8 +448,8 @@ def main(argv):
     if accessed_shares:
         print()
 
-    for _, _, unc in sorted(results, key=sort_key):
-        print(unc)
+    for _, _, _, display_unc in sorted(results, key=sort_key):
+        print(display_unc)
     return 0
 
 
