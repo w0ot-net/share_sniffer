@@ -93,6 +93,8 @@ def write_tree(conn, share, handle, verbose, label, initial_entries=None, dir_th
             print(f"[*] {label} -- {_count:,} entries...", file=sys.stderr)
             _last_report = now
 
+    success = True
+
     if dir_threads == 1 or connect_func is None:
         # Single-threaded recursive approach
         def walk(win_path, display_path, entries=None):
@@ -116,7 +118,11 @@ def write_tree(conn, share, handle, verbose, label, initial_entries=None, dir_th
                     handle.write(display + "\n")
                     _tick()
 
-        walk("\\", "", initial_entries)
+        try:
+            walk("\\", "", initial_entries)
+        except Exception as exc:
+            print(f"[!] {label}: enumeration failed: {exc}", file=sys.stderr)
+            success = False
     else:
         # Parallel directory enumeration using work queue
         import queue
@@ -124,6 +130,7 @@ def write_tree(conn, share, handle, verbose, label, initial_entries=None, dir_th
 
         work_queue = queue.Queue()
         results_lock = threading.Lock()
+        traversal_failed = threading.Event()
         results = []  # List of (display_path, is_dir) tuples
 
         def process_entries(entries, win_path, display_path):
@@ -145,17 +152,13 @@ def write_tree(conn, share, handle, verbose, label, initial_entries=None, dir_th
                         _tick()
             return subdirs
 
-        def worker():
+        def worker(local_conn):
             """Worker thread that processes directories from the queue."""
-            local_conn = None
             try:
-                local_conn = connect_func()
                 while True:
-                    try:
-                        item = work_queue.get(timeout=0.1)
-                    except queue.Empty:
-                        continue
+                    item = work_queue.get()
                     if item is None:
+                        work_queue.task_done()
                         break
                     win_path, display_path = item
                     try:
@@ -166,44 +169,74 @@ def write_tree(conn, share, handle, verbose, label, initial_entries=None, dir_th
                     except SessionError as exc:
                         if verbose:
                             print(f"[!] {share}: {exc}", file=sys.stderr)
+                    except Exception as exc:
+                        traversal_failed.set()
+                        print(f"[!] {label}: enumeration failed: {exc}", file=sys.stderr)
                     finally:
                         work_queue.task_done()
             finally:
-                if local_conn:
-                    try:
-                        local_conn.logoff()
-                    except Exception:
-                        pass
+                try:
+                    local_conn.logoff()
+                except Exception:
+                    pass
 
-        # Process initial entries (root level)
-        if initial_entries:
-            subdirs = process_entries(initial_entries, "\\", "")
-            for subdir in subdirs:
-                work_queue.put(subdir)
-        else:
-            work_queue.put(("\\", ""))
+        initial_subdirs = []
+        if initial_entries is not None:
+            try:
+                initial_subdirs = process_entries(initial_entries, "\\", "")
+            except SessionError as exc:
+                if verbose:
+                    print(f"[!] {share}: {exc}", file=sys.stderr)
+            except Exception as exc:
+                traversal_failed.set()
+                print(f"[!] {label}: enumeration failed: {exc}", file=sys.stderr)
 
-        # Start worker threads
+        worker_connections = []
+        if not traversal_failed.is_set():
+            for _ in range(dir_threads):
+                try:
+                    worker_connections.append(connect_func())
+                except Exception as exc:
+                    print(f"[!] {label}: worker connection failed: {exc}", file=sys.stderr)
+
         workers = []
-        for _ in range(dir_threads):
-            t = threading.Thread(target=worker, daemon=True)
-            t.start()
-            workers.append(t)
+        for worker_conn in worker_connections:
+            thread = threading.Thread(target=worker, args=(worker_conn,), daemon=True)
+            try:
+                thread.start()
+            except Exception as exc:
+                print(f"[!] {label}: worker startup failed: {exc}", file=sys.stderr)
+                try:
+                    worker_conn.logoff()
+                except Exception:
+                    pass
+            else:
+                workers.append(thread)
 
-        # Wait for all work to complete
-        work_queue.join()
-
-        # Signal workers to stop
-        for _ in workers:
-            work_queue.put(None)
-        for t in workers:
-            t.join(timeout=1.0)
+        if not workers:
+            traversal_failed.set()
+        else:
+            try:
+                if initial_entries is None:
+                    work_queue.put(("\\", ""))
+                else:
+                    for subdir in initial_subdirs:
+                        work_queue.put(subdir)
+                work_queue.join()
+            finally:
+                for _ in workers:
+                    work_queue.put(None)
+                for thread in workers:
+                    thread.join(timeout=1.0)
 
         # Write results to file (sorted for consistent output)
         for path, _ in sorted(results):
             handle.write(path + "\n")
+        success = not traversal_failed.is_set()
 
-    print(f"[*] {label} -- {_count:,} entries, done.", file=sys.stderr)
+    if success:
+        print(f"[*] {label} -- {_count:,} entries, done.", file=sys.stderr)
+    return success
 
 
 
@@ -311,10 +344,10 @@ def main(argv):
             conn = make_connection()
         except SessionError as exc:
             print(f"[!] {host}: authentication failed: {exc}", file=sys.stderr)
-            return
+            return False
         except Exception as exc:
             print(f"[!] {host}: connection failed: {exc}", file=sys.stderr)
-            return
+            return False
 
         try:
             shares = []
@@ -325,7 +358,7 @@ def main(argv):
         except SessionError as exc:
             print(f"[!] {host}: failed to list shares: {exc}", file=sys.stderr)
             conn.logoff()
-            return
+            return False
 
         if exclude_shares:
             shares = [s for s in shares if s.upper() not in exclude_shares]
@@ -333,7 +366,7 @@ def main(argv):
         if not shares:
             print(f"[!] {host}: no shares found", file=sys.stderr)
             conn.logoff()
-            return
+            return False
 
         def process_share(share_name, share_conn=None):
             owns_connection = share_conn is None
@@ -343,10 +376,10 @@ def main(argv):
                     share_conn = make_connection()
                 except SessionError as exc:
                     print(f"[!] {host}: authentication failed: {exc}", file=sys.stderr)
-                    return
+                    return False
                 except Exception as exc:
                     print(f"[!] {host}: connection failed: {exc}", file=sys.stderr)
-                    return
+                    return False
 
             try:
                 try:
@@ -354,7 +387,7 @@ def main(argv):
                 except SessionError as exc:
                     if args.verbose:
                         print(f"[!] {host}: {share_name} not readable: {exc}", file=sys.stderr)
-                    return
+                    return False
                 if args.dir_threads > 1 and owns_connection:
                     share_conn.logoff()
                     closed_connection = True
@@ -366,7 +399,7 @@ def main(argv):
                 with open(out_path, "w", encoding="utf-8") as handle:
                     # Pass dir_threads and connect_func for parallel enumeration
                     connect_func = make_connection if args.dir_threads > 1 else None
-                    write_tree(
+                    return write_tree(
                         share_conn, share_name, handle, args.verbose,
                         label=f"{host}: {share_name}",
                         initial_entries=initial_entries,
@@ -378,8 +411,7 @@ def main(argv):
 
         if args.share_threads == 1:
             # Single-threaded: reuse the main connection for all shares
-            for share in shares:
-                process_share(share, share_conn=conn)
+            share_results = [process_share(share, share_conn=conn) for share in shares]
             conn.logoff()
         else:
             # Multi-threaded: each thread gets its own connection
@@ -388,21 +420,19 @@ def main(argv):
 
             with ThreadPoolExecutor(max_workers=args.share_threads) as executor:
                 futures = [executor.submit(process_share, share) for share in shares]
-                for future in futures:
-                    future.result()
+                share_results = [future.result() for future in futures]
+        return any(share_results)
 
     if args.target_threads == 1:
-        for entry in resolved_targets:
-            process_target(entry)
+        target_results = [process_target(entry) for entry in resolved_targets]
     else:
         from concurrent.futures import ThreadPoolExecutor
 
         with ThreadPoolExecutor(max_workers=args.target_threads) as executor:
             futures = [executor.submit(process_target, entry) for entry in resolved_targets]
-            for future in futures:
-                future.result()
+            target_results = [future.result() for future in futures]
 
-    return 0
+    return 0 if any(target_results) else 1
 
 
 if __name__ == "__main__":
